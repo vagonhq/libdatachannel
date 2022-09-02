@@ -276,9 +276,11 @@ createRtpPacketizationConfig(const rtcPacketizationHandlerInit *init) {
 	if (!init->cname)
 		throw std::invalid_argument("Unexpected null pointer for cname");
 
-	return std::make_shared<RtpPacketizationConfig>(init->ssrc, init->cname, init->payloadType,
-	                                                init->clockRate, init->sequenceNumber,
-	                                                init->timestamp);
+	auto config = std::make_shared<RtpPacketizationConfig>(init->ssrc, init->cname,
+	                                                       init->payloadType, init->clockRate);
+	config->sequenceNumber = init->sequenceNumber;
+	config->timestamp = init->timestamp;
+	return config;
 }
 
 #endif // RTC_ENABLE_MEDIA
@@ -1123,24 +1125,6 @@ int rtcChainRtcpNackResponder(int tr, unsigned int maxStoredPacketsCount) {
 	});
 }
 
-int rtcSetRtpConfigurationStartTime(int id, const rtcStartTime *startTime) {
-	return wrap([&] {
-		auto config = getRtpConfig(id);
-		auto epoch = startTime->since1970 ? RtpPacketizationConfig::EpochStart::T1970
-		                                  : RtpPacketizationConfig::EpochStart::T1900;
-		config->setStartTime(startTime->seconds, epoch, startTime->timestamp);
-		return RTC_ERR_SUCCESS;
-	});
-}
-
-int rtcStartRtcpSenderReporterRecording(int id) {
-	return wrap([id] {
-		auto sender = getRtcpSrReporter(id);
-		sender->startRecording();
-		return RTC_ERR_SUCCESS;
-	});
-}
-
 int rtcTransformSecondsToTimestamp(int id, double seconds, uint32_t *timestamp) {
 	return wrap([&] {
 		auto config = getRtpConfig(id);
@@ -1165,14 +1149,6 @@ int rtcGetCurrentTrackTimestamp(int id, uint32_t *timestamp) {
 	});
 }
 
-int rtcGetTrackStartTimestamp(int id, uint32_t *timestamp) {
-	return wrap([&] {
-		auto config = getRtpConfig(id);
-		*timestamp = config->startTimestamp;
-		return RTC_ERR_SUCCESS;
-	});
-}
-
 int rtcSetTrackRtpTimestamp(int id, uint32_t timestamp) {
 	return wrap([&] {
 		auto config = getRtpConfig(id);
@@ -1181,10 +1157,10 @@ int rtcSetTrackRtpTimestamp(int id, uint32_t timestamp) {
 	});
 }
 
-int rtcGetPreviousTrackSenderReportTimestamp(int id, uint32_t *timestamp) {
+int rtcGetLastTrackSenderReportTimestamp(int id, uint32_t *timestamp) {
 	return wrap([&] {
 		auto sender = getRtcpSrReporter(id);
-		*timestamp = sender->previousReportedTimestamp;
+		*timestamp = sender->lastReportedTimestamp();
 		return RTC_ERR_SUCCESS;
 	});
 }
