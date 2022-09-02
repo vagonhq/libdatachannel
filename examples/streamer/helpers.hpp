@@ -43,9 +43,12 @@ struct Client {
     }
     std::optional<std::shared_ptr<ClientTrackData>> video;
     std::optional<std::shared_ptr<ClientTrackData>> audio;
-    std::optional<std::shared_ptr<rtc::DataChannel>> dataChannel{};
+    std::optional<std::shared_ptr<rtc::DataChannel>> dataChannel;
+
     void setState(State state);
     State getState();
+
+	uint32_t rtpStartTimestamp = 0;
 
 private:
     std::shared_mutex _mutex;
