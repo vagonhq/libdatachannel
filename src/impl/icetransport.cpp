@@ -158,11 +158,9 @@ IceTransport::IceTransport(const Configuration &config, candidate_callback candi
 }
 
 IceTransport::~IceTransport() {
-	stop();
+	PLOG_DEBUG << "Destroying ICE transport";
 	mAgent.reset();
 }
-
-bool IceTransport::stop() { return Transport::stop(); }
 
 Description::Role IceTransport::role() const { return mRole; }
 
@@ -572,16 +570,11 @@ IceTransport::IceTransport(const Configuration &config, candidate_callback candi
 	                       RecvCallback, this);
 }
 
-IceTransport::~IceTransport() { stop(); }
-
-bool IceTransport::stop() {
+IceTransport::~IceTransport() {
 	if (mTimeoutId) {
 		g_source_remove(mTimeoutId);
 		mTimeoutId = 0;
 	}
-
-	if (!Transport::stop())
-		return false;
 
 	PLOG_DEBUG << "Stopping ICE thread";
 	nice_agent_attach_recv(mNiceAgent.get(), mStreamId, 1, g_main_loop_get_context(mMainLoop.get()),
@@ -589,7 +582,9 @@ bool IceTransport::stop() {
 	nice_agent_remove_stream(mNiceAgent.get(), mStreamId);
 	g_main_loop_quit(mMainLoop.get());
 	mMainLoopThread.join();
-	return true;
+
+	PLOG_DEBUG << "Destroying ICE transport";
+	mNiceAgent.reset();
 }
 
 Description::Role IceTransport::role() const { return mRole; }
