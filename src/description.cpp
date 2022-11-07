@@ -946,7 +946,7 @@ string Description::Media::generateSdpLines(string_view eol) const {
 		sdp << eol;
 
 		for (const auto &val : map.rtcpFbs)
-			if (val != "transport-cc")
+			// if (val != "transport-cc")
 				sdp << "a=rtcp-fb:" << map.payloadType << ' ' << val << eol;
 
 		for (const auto &val : map.fmtps)
