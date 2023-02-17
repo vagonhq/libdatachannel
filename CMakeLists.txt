@@ -64,6 +64,7 @@ set(LIBDATACHANNEL_SOURCES
 	${CMAKE_CURRENT_SOURCE_DIR}/src/mediahandlerelement.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/mediahandlerrootelement.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/rtcpnackresponder.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/src/rtptwcchandler.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/rtp.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/capi.cpp
 )
@@ -99,6 +100,7 @@ set(LIBDATACHANNEL_HEADERS
 	${CMAKE_CURRENT_SOURCE_DIR}/include/rtc/mediahandlerelement.hpp
 	${CMAKE_CURRENT_SOURCE_DIR}/include/rtc/mediahandlerrootelement.hpp
 	${CMAKE_CURRENT_SOURCE_DIR}/include/rtc/rtcpnackresponder.hpp
+	${CMAKE_CURRENT_SOURCE_DIR}/include/rtc/rtptwcchandler.hpp
 	${CMAKE_CURRENT_SOURCE_DIR}/include/rtc/utils.hpp
 )
 
