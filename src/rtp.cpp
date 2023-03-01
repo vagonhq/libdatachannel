@@ -654,12 +654,14 @@ uint16_t RtcpTwcc::getBaseSeqNum() const { return ntohs(_baseSeqNum); }
 uint16_t RtcpTwcc::getPacketStatusCount() const { return ntohs(_packetStatusCount); }
 
 uint32_t RtcpTwcc::getReferenceTime() const {
-	uint32_t refTime = ((uint32_t)_referenceTime[2] << 16) | ((uint32_t)_referenceTime[1] << 8) |
-	                   ((uint32_t)_referenceTime[0]);
+	uint32_t refTime = ((uint32_t)_referenceTime[0] << 16) | ((uint32_t)_referenceTime[1] << 8) |
+	                   ((uint32_t)_referenceTime[2]);
 	return refTime;
 }
 
 uint8_t RtcpTwcc::getFbPacketCount() const { return _fbPacketCount; }
+
+char *RtcpTwcc::getBody() { return reinterpret_cast<char *>(&_fbPacketCount + 1) ; }
 
 void RtpTwccExt::setExtId(uint8_t id) { _id = (id << 4) | 0x01; }
 
