@@ -365,7 +365,7 @@ struct RTC_CPP_EXPORT RtcpTwcc {
 	[[nodiscard]] uint16_t getPacketStatusCount() const;
 	[[nodiscard]] uint32_t getReferenceTime() const;
 	[[nodiscard]] uint8_t getFbPacketCount() const;
-	
+	[[nodiscard]] char* getBody();
 };
 
 struct RTC_CPP_EXPORT RtpTwccExt {
