@@ -45,32 +45,33 @@ void ChainInterop::updateReceivedStatus(uint16_t baseSeqNum, std::vector<bool> s
 	size_t statusStartIdx = 0;
 	uint16_t seqNum = baseSeqNum;
 	size_t processedStatusCount = 0;
-	int asd = 0;
-	while (statusStartIdx < statuses.size()) {
-		if (outgoingFrameInfo.count(seqNum)) {
-			processedStatusCount =
-			    outgoingFrameInfo.at(seqNum).updateReceivedStatus(statuses, 0, statusStartIdx);
-			seqNum += processedStatusCount;
-		} else {
-			auto iterator = outgoingFrameInfo.lower_bound(seqNum);
-			if (iterator != outgoingFrameInfo.end()) {
-				iterator--;
-				if (outgoingFrameInfo.count(iterator->first))
-					processedStatusCount = iterator->second.updateReceivedStatus(
-					    statuses, seqNum - iterator->first, statusStartIdx);
-				else
-					break;
+	if (!outgoingFrameInfo.empty()) {
+		while (statusStartIdx < statuses.size()) {
+			if (outgoingFrameInfo.count(seqNum)) {
+				processedStatusCount =
+				    outgoingFrameInfo.at(seqNum).updateReceivedStatus(statuses, 0, statusStartIdx);
 				seqNum += processedStatusCount;
 			} else {
-				break;
+				auto iterator = outgoingFrameInfo.lower_bound(seqNum);
+				if (iterator != outgoingFrameInfo.end()) {
+					iterator--;
+					if (outgoingFrameInfo.count(iterator->first))
+						processedStatusCount = iterator->second.updateReceivedStatus(
+						    statuses, seqNum - iterator->first, statusStartIdx);
+					else
+						break;
+					seqNum += processedStatusCount;
+				} else {
+					break;
+				}
 			}
+			statusStartIdx += processedStatusCount;
 		}
-		statusStartIdx += processedStatusCount;
 	}
 }
 
 double ChainInterop::getReceivedBitsPerSecond() {
-	if (outgoingFrameInfo.size() == 0)
+	if (outgoingFrameInfo.empty())
 		return 0;
 
 	size_t receivedBytes = 0;
