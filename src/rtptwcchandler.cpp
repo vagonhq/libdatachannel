@@ -17,7 +17,8 @@ ChainedOutgoingProduct TwccHandler::processOutgoingBinaryMessage(ChainedMessages
 	auto outgoing = make_chained_messages_product();
 	outgoing->reserve(messages->size());
 	uint16_t baseSeqNum = twccSeqNum;
-	twccInterop->addFrame(baseSeqNum);
+	if (twccInterop)
+		twccInterop->addFrame(baseSeqNum);
 
 	for (unsigned int i = 0; i < messages->size(); i++) {
 		auto packet = messages->at(i);
@@ -36,8 +37,8 @@ ChainedOutgoingProduct TwccHandler::processOutgoingBinaryMessage(ChainedMessages
 		memcpy(dst, &twccHeader, TWCC_EXT_HEADER_SIZE);
 		dst += TWCC_EXT_HEADER_SIZE;
 		memcpy(dst, src, packet->size() - rtpHeader->getSize());
-
-		twccInterop->addPacketToFrame(baseSeqNum, outgoing->back()->size());
+		if (twccInterop)
+			twccInterop->addPacketToFrame(baseSeqNum, outgoing->back()->size());
 	}
 
 	return {outgoing, control};
