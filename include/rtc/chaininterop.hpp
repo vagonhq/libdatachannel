@@ -33,6 +33,7 @@ class RTC_CPP_EXPORT ChainInterop {
 	// I give a little bit of leeway to one second threshold since the elapsed time
 	// is generally between 0.98 and 0.99
 	const std::chrono::milliseconds oneSecond = std::chrono::milliseconds(1010);
+	std::mutex mutex;
 
 public:
 	ChainInterop();

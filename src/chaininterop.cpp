@@ -42,6 +42,7 @@ void ChainInterop::addFrame(uint16_t seqNum) {
 void ChainInterop::addPacketToFrame(uint16_t seqNum, uint16_t numBytes) { outgoingFrameInfo.at(seqNum).addPacket(numBytes); }
 
 void ChainInterop::updateReceivedStatus(uint16_t baseSeqNum, std::vector<bool> statuses) {
+	const std::lock_guard<std::mutex> lock(mutex);
 	size_t statusStartIdx = 0;
 	uint16_t seqNum = baseSeqNum;
 	size_t processedStatusCount = 0;
@@ -73,7 +74,7 @@ void ChainInterop::updateReceivedStatus(uint16_t baseSeqNum, std::vector<bool> s
 double ChainInterop::getReceivedBitsPerSecond() {
 	if (outgoingFrameInfo.empty())
 		return 0;
-
+	const std::lock_guard<std::mutex> lock(mutex);
 	size_t receivedBytes = 0;
 	std::chrono::steady_clock::time_point timeNow = std::chrono::steady_clock::now();
 	std::chrono::steady_clock::time_point firstPacketTime = timeNow;
