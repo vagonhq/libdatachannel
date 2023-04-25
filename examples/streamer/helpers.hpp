@@ -35,7 +35,7 @@ struct Client {
     std::optional<std::shared_ptr<ClientTrackData>> video;
     std::optional<std::shared_ptr<ClientTrackData>> audio;
     std::optional<std::shared_ptr<rtc::DataChannel>> dataChannel;
-
+	std::optional<std::shared_ptr<rtc::DataChannel>> dataChannel2;
     void setState(State state);
     State getState();
 
