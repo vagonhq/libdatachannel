@@ -6,6 +6,9 @@ const iceConnectionLog = document.getElementById('ice-connection-state'),
 const clientId = randomId(10);
 const websocket = new WebSocket('ws://127.0.0.1:8000/' + clientId);
 
+const byteReportInterval = 1000
+let prevByteCount = 0
+
 websocket.onopen = () => {
     document.getElementById('start').disabled = false;
 }
@@ -23,6 +26,7 @@ websocket.onmessage = async (evt) => {
 
 let pc = null;
 let dc = null;
+let dc2 = null;
 
 function createPeerConnection() {
     const config = {
@@ -59,43 +63,84 @@ function createPeerConnection() {
 
     // Receive data channel
     pc.ondatachannel = (evt) => {
-        dc = evt.channel;
-
-        dc.onopen = () => {
-            dataChannelLog.textContent += '- open\n';
+        if (evt.channel.label === 'ping-pong'){
+            dc = evt.channel;
+            dc.onopen = () => {
+            dataChannelLog.textContent += '- dc open\n';
             dataChannelLog.scrollTop = dataChannelLog.scrollHeight;
-        };
+            };
 
-        let dcTimeout = null;
-        dc.onmessage = (evt) => {
-            if (typeof evt.data !== 'string') {
-                return;
-            }
-
-            dataChannelLog.textContent += '< ' + evt.data + '\n';
-            dataChannelLog.scrollTop = dataChannelLog.scrollHeight;
-
-            dcTimeout = setTimeout(() => {
-                if (!dc) {
+            let dcTimeout = null;
+            dc.onmessage = (evt) => {
+                if (typeof evt.data !== 'string') {
                     return;
                 }
-                const message = `Pong ${currentTimestamp()}`;
-                dataChannelLog.textContent += '> ' + message + '\n';
-                dataChannelLog.scrollTop = dataChannelLog.scrollHeight;
-                dc.send(message);
-            }, 1000);
-        }
 
-        dc.onclose = () => {
-            clearTimeout(dcTimeout);
-            dcTimeout = null;
-            dataChannelLog.textContent += '- close\n';
-            dataChannelLog.scrollTop = dataChannelLog.scrollHeight;
-        };
+                dataChannelLog.textContent += '< ' + evt.data + '\n';
+                dataChannelLog.scrollTop = dataChannelLog.scrollHeight;
+
+                dcTimeout = setTimeout(() => {
+                    if (!dc) {
+                        return;
+                    }
+                    const message = `Pong ${currentTimestamp()}`;
+                    dataChannelLog.textContent += '> ' + message + '\n';
+                    dataChannelLog.scrollTop = dataChannelLog.scrollHeight;
+                    dc.send(message);
+                }, 1000);
+            }
+
+            dc.onclose = () => {
+                clearTimeout(dcTimeout);
+                dcTimeout = null;
+                dataChannelLog.textContent += '- dc close\n';
+                dataChannelLog.scrollTop = dataChannelLog.scrollHeight;
+            };    
+        }
+        else{
+            dc2 = evt.channel;
+            dc2.onopen = () => {
+                    dataChannelLog.textContent += '- dc2 open\n';
+                    dataChannelLog.scrollTop = dataChannelLog.scrollHeight;
+            };
+            let dcTimeout = null;
+            dc2.onmessage = (evt) => {
+                if (typeof evt.data !== 'string') {
+                    return;
+                }
+                dataChannelLog.textContent += '< ' + evt.data + '\n';
+                dataChannelLog.scrollTop = dataChannelLog.scrollHeight;
+            }
+            dc2.onclose = () => {
+                dataChannelLog.textContent += '- dc2 close\n';
+                dataChannelLog.scrollTop = dataChannelLog.scrollHeight;
+            };    
+        }        
     }
+    statsInterval = setInterval(getConnectionStats, byteReportInterval);
 
     return pc;
 }
+
+function getConnectionStats() {
+    pc.getStats(null).then((stats) => {
+        let statsOutput = "";
+        stats.forEach((report) => {
+          if (report.type === "inbound-rtp" && report.kind === "video") {
+            let byteCount = report["bytesReceived"] - prevByteCount;
+            prevByteCount = report["bytesReceived"];
+            statsOutput += `Bps: ${byteCount}\n`;
+            if (dc2.readyState == "open"){
+                const message = `Bps:${byteCount}`;
+                dc2.send(message);
+            }
+          }
+    });
+    dataChannelLog.textContent += statsOutput;
+    dataChannelLog.scrollTop = dataChannelLog.scrollHeight;
+  });
+}
+
 
 async function waitGatheringComplete() {
     return new Promise((resolve) => {
