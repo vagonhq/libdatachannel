@@ -10,6 +10,29 @@
 
 namespace rtc {
 
+struct ReceivedStats
+{
+	size_t receivedBytes, notReceivedBytes;
+	size_t receivedPackets, notReceivedPackets;
+
+	ReceivedStats(){
+		receivedBytes = 0;
+		notReceivedBytes = 0;
+		receivedPackets = 0;
+		notReceivedPackets = 0;
+	}
+
+	ReceivedStats operator+(ReceivedStats s){
+		ReceivedStats result;
+		result.receivedBytes = receivedBytes + s.receivedBytes;
+		result.notReceivedBytes = notReceivedBytes + s.notReceivedBytes;
+		result.receivedPackets = receivedPackets + s.receivedPackets;
+		result.notReceivedPackets = notReceivedPackets + s.notReceivedPackets;
+
+		return result;
+	}
+};
+
 struct PacketInfo {
 	bool isReceived;
 	uint16_t numBytes;
@@ -24,8 +47,9 @@ public:
 	void addPacket(uint16_t numBytes);
 	size_t updateReceivedStatus(std::vector<bool> statuses, size_t packetStartIdx, size_t statusStartIdx);
 	size_t size() const;
-	size_t getFrameSizeInBytes() const;
+	ReceivedStats getFrameSizeInBytes() const;
 	std::chrono::steady_clock::time_point getTime() const;
+	bool isFullyReceived() const;
 };
 
 class RTC_CPP_EXPORT ChainInterop {
@@ -33,16 +57,16 @@ class RTC_CPP_EXPORT ChainInterop {
 	// I give a little bit of leeway to one second threshold since the elapsed time
 	// is generally between 0.98 and 0.99
 	const std::chrono::milliseconds oneSecond = std::chrono::milliseconds(1010);
-	std::mutex mutex;
 
 public:
 	ChainInterop();
 	void addFrame(uint16_t seqNum);
 	void addPacketToFrame(uint16_t seqNum, uint16_t numBytes);
-	void updateReceivedStatus(uint16_t baseSeqNum, std::vector<bool> statuses);
+	size_t updateReceivedStatus(uint16_t baseSeqNum, std::vector<bool> statuses);
 	double getReceivedBitsPerSecond();
 	void deleteOldFrames(std::chrono::steady_clock::time_point time_now);
 	size_t size() const;
+	size_t sizeReceived() const;
 };
 } // namespace rtc
 
