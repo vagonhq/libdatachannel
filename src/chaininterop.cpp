@@ -4,6 +4,7 @@
 
 namespace rtc {
 
+
 PacketInfo::PacketInfo(bool isReceived, uint16_t numBytes) : isReceived(isReceived), numBytes(numBytes) {}
 
 FrameInfo::FrameInfo(std::chrono::steady_clock::time_point time) : time(time) {}
@@ -21,16 +22,31 @@ size_t FrameInfo::updateReceivedStatus(std::vector<bool> statuses, size_t packet
 
 size_t FrameInfo::size() const { return packets.size(); }
 
-size_t FrameInfo::getFrameSizeInBytes() const {
-	size_t bytes = 0;
+ReceivedStats FrameInfo::getFrameSizeInBytes() const {
+	ReceivedStats stats = ReceivedStats();
 	for (auto packet : packets) {
-		if (packet.isReceived)
-			bytes += packet.numBytes;
+		if (packet.isReceived){
+			stats.receivedBytes += packet.numBytes;
+			stats.receivedPackets++;
+		}
+		else
+		{
+			stats.notReceivedBytes += packet.numBytes;
+			stats.notReceivedPackets++;
+		}
 	}
-	return bytes;
+	return stats;
 }
 
 std::chrono::steady_clock::time_point FrameInfo::getTime() const { return time; }
+
+bool FrameInfo::isFullyReceived() const {
+	bool result = true;
+	for (auto packet : packets) {
+		result = result & packet.isReceived;
+	}
+	return result;
+}
 
 ChainInterop::ChainInterop() {}
 
@@ -41,16 +57,19 @@ void ChainInterop::addFrame(uint16_t seqNum) {
 
 void ChainInterop::addPacketToFrame(uint16_t seqNum, uint16_t numBytes) { outgoingFrameInfo.at(seqNum).addPacket(numBytes); }
 
-void ChainInterop::updateReceivedStatus(uint16_t baseSeqNum, std::vector<bool> statuses) {
+size_t ChainInterop::updateReceivedStatus(uint16_t baseSeqNum, std::vector<bool> statuses) {
 	size_t statusStartIdx = 0;
 	uint16_t seqNum = baseSeqNum;
 	size_t processedStatusCount = 0;
+	size_t totalProcessedStatusCount = 0;
+
 	if (!outgoingFrameInfo.empty()) {
 		while (statusStartIdx < statuses.size()) {
 			if (outgoingFrameInfo.count(seqNum)) {
 				processedStatusCount =
 				    outgoingFrameInfo.at(seqNum).updateReceivedStatus(statuses, 0, statusStartIdx);
 				seqNum += processedStatusCount;
+				totalProcessedStatusCount += processedStatusCount;
 			} else {
 				auto iterator = outgoingFrameInfo.lower_bound(seqNum);
 				if (iterator != outgoingFrameInfo.end()) {
@@ -61,6 +80,7 @@ void ChainInterop::updateReceivedStatus(uint16_t baseSeqNum, std::vector<bool> s
 					else
 						break;
 					seqNum += processedStatusCount;
+					totalProcessedStatusCount += processedStatusCount;
 				} else {
 					break;
 				}
@@ -68,27 +88,28 @@ void ChainInterop::updateReceivedStatus(uint16_t baseSeqNum, std::vector<bool> s
 			statusStartIdx += processedStatusCount;
 		}
 	}
+	return totalProcessedStatusCount;
 }
 
 double ChainInterop::getReceivedBitsPerSecond() {
 	if (outgoingFrameInfo.empty())
 		return 0;
 
-	size_t receivedBytes = 0;
 	std::chrono::steady_clock::time_point timeNow = std::chrono::steady_clock::now();
 	std::chrono::steady_clock::time_point firstPacketTime = timeNow;
 	deleteOldFrames(timeNow);
-
+	ReceivedStats allStats;
 	for (auto it = outgoingFrameInfo.begin(); it != outgoingFrameInfo.end(); it++) {
 		if (it->second.getTime() < firstPacketTime) {
 			firstPacketTime = it->second.getTime();
 		}
-		receivedBytes += it->second.getFrameSizeInBytes();
+		ReceivedStats temp = it->second.getFrameSizeInBytes();
+		allStats = allStats + temp;
 	}
 
 	double elapsedSeconds =
 	    (double)std::chrono::duration_cast<std::chrono::milliseconds>(timeNow - firstPacketTime).count() / 1000.0;
-	double receivedBitrate = (double)receivedBytes * 8 / elapsedSeconds;
+	double receivedBitrate = (double)allStats.receivedBytes * 8 / elapsedSeconds;
 
 	return receivedBitrate;
 }
@@ -105,6 +126,13 @@ void ChainInterop::deleteOldFrames(std::chrono::steady_clock::time_point time_no
 
 size_t ChainInterop::size() const { return outgoingFrameInfo.size(); }
 
+size_t ChainInterop::sizeReceived() const {
+	size_t nReceived = 0;
+	for (auto it = outgoingFrameInfo.begin(); it != outgoingFrameInfo.end(); it++) {
+		nReceived += it->second.isFullyReceived() ? 1 : 0;
+	}
+	return nReceived;
+}
 } // namespace rtc
 
 #endif
