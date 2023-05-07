@@ -95,7 +95,6 @@ double ChainInterop::getReceivedBitsPerSecond() {
 	if (outgoingFrameInfo.empty())
 		return 0;
 
-	size_t receivedBytes = 0;
 	std::chrono::steady_clock::time_point timeNow = std::chrono::steady_clock::now();
 	std::chrono::steady_clock::time_point firstPacketTime = timeNow;
 	deleteOldFrames(timeNow);
