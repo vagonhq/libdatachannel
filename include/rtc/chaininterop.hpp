@@ -54,12 +54,11 @@ public:
 
 class RTC_CPP_EXPORT ChainInterop {
 	std::map<uint16_t, FrameInfo> outgoingFrameInfo;
-	// I give a little bit of leeway to one second threshold since the elapsed time
-	// is generally between 0.98 and 0.99
-	const std::chrono::milliseconds oneSecond = std::chrono::milliseconds(1010);
+	// timeThreshold should be at least 1000ms.
+	std::chrono::milliseconds timeThreshold;
 
 public:
-	ChainInterop();
+	ChainInterop(int thresholdMs);
 	void addFrame(uint16_t seqNum);
 	void addPacketToFrame(uint16_t seqNum, uint16_t numBytes);
 	size_t updateReceivedStatus(uint16_t baseSeqNum, std::vector<bool> statuses);
