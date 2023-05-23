@@ -48,7 +48,7 @@ bool FrameInfo::isFullyReceived() const {
 	return result;
 }
 
-ChainInterop::ChainInterop() {}
+ChainInterop::ChainInterop(int thresholdMs) { timeThreshold = std::chrono::milliseconds(thresholdMs); }
 
 void ChainInterop::addFrame(uint16_t seqNum) {
 	auto time_now = std::chrono::steady_clock::now();
@@ -117,7 +117,7 @@ double ChainInterop::getReceivedBitsPerSecond() {
 void ChainInterop::deleteOldFrames(std::chrono::steady_clock::time_point time_now) {
 	auto it = outgoingFrameInfo.cbegin();
 	while (it != outgoingFrameInfo.cend()) {
-		if (time_now - it->second.getTime() > oneSecond)
+		if (time_now - it->second.getTime() > timeThreshold)
 			it = outgoingFrameInfo.erase(it);
 		else
 			it++;

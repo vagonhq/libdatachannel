@@ -1,7 +1,9 @@
 #if RTC_ENABLE_MEDIA
 
 #include "rtptwcchandler.hpp"
-
+#ifndef _WIN32
+	#include <cstring>
+#endif
 #include <cassert>
 namespace rtc {
 
