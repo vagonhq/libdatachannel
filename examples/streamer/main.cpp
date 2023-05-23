@@ -69,7 +69,7 @@ DispatchQueue MainThread("Main");
 /// Audio and video stream
 optional<shared_ptr<Stream>> avStream = nullopt;
 
-const string defaultRootDirectory = "../../../../../examples/streamer/samples/";
+const string defaultRootDirectory = "../../../examples/streamer/samples/";
 const string defaultH264SamplesDirectory = defaultRootDirectory + "h264/";
 string h264SamplesDirectory = defaultH264SamplesDirectory;
 const string defaultOpusSamplesDirectory = defaultRootDirectory + "opus/";
@@ -79,9 +79,9 @@ const uint16_t defaultPort = 8000;
 string ip_address = defaultIPAddress;
 uint16_t port = defaultPort;
 
-enum TwccPacketStatus {NOT_RECEIVED = 0, RECEIVED_SMALL_DELTA = 1, RECEIVED_LARGE_DELTA = 2, RESERVED = 3, NO_DELTA = 4};
+enum TwccPacketStatus {NOT_RECEIVED = 0, RECEIVED_SMALL_DELTA = 1, RECEIVED_LARGE_DELTA = 2, RESERVED = 3};
 atomic_ulong receivedBps;
-std::shared_ptr<ChainInterop> twccInterop = std::make_shared<ChainInterop>();
+std::shared_ptr<ChainInterop> twccInterop = std::make_shared<ChainInterop>(1000);
 
 struct TwccRunLengthChunk {
 	uint16_t received;
@@ -97,16 +97,12 @@ struct TwccRunLengthChunk {
 struct TwccStatusVectorChunk {
 	uint8_t received;
 	uint8_t not_received;
-	TwccPacketStatus delta_info[7];
-	bool delta_exists;
+	std::vector<TwccPacketStatus> delta_info;
+	std::vector<bool> is_received;
 
 	TwccStatusVectorChunk() {
 		received = 0;
 		not_received = 0;
-		for (int i = 0; i < 7; i++) {
-			delta_info[i] = TwccPacketStatus::NOT_RECEIVED;
-		}
-		delta_exists = false;
 	}
 };
 
@@ -539,34 +535,41 @@ class CCResponder final : public rtc::MediaHandler {
 		return result;
 	}
 
-	TwccStatusVectorChunk processStatusVector(uint16_t data) {
+	TwccStatusVectorChunk processStatusVector(uint16_t data, uint16_t packets_remaining) {
 		TwccStatusVectorChunk result = TwccStatusVectorChunk();
 		bool symbol_size = (data >> 14) & 0x01;
 		uint8_t received = 0;
-		// 1 bit for each packet
+		// 2 bits for each packet
 		if (symbol_size) {
 			const uint8_t select = 0x03;
-			result.delta_exists = true;
 			uint8_t status;
-			for (unsigned int i = 0; i < 7; i++) {
-				status = (uint8_t)((data >> (2 * i)) & select);
-				result.delta_info[i] = static_cast<TwccPacketStatus>(status);
+			uint16_t n = packets_remaining < 7 ? packets_remaining : 7;
+			for (unsigned int i = 0; i < n; i++) {
+				status = (uint8_t)((data >> (2 * (6 - i))) & select);
+				result.delta_info.push_back(static_cast<TwccPacketStatus>(status));
 				if (status == 0) {
 					result.not_received += 1;
+					result.is_received.push_back(false);
 				} else {
 					result.received += 1;
+					result.is_received.push_back(true);
 				}
 			}
 		} else {
 			const uint8_t select = 0x01;
-			result.delta_exists = false;
 			uint8_t status;
-			for (unsigned int i = 0; i < 14; i++) {
-				status = (uint8_t)((data >> i) & select);
-				if (status == 0)
+			uint16_t n = packets_remaining < 14 ? packets_remaining : 14;
+			for (unsigned int i = 0; i < n; i++) {
+				status = (uint8_t)((data >> (13 - i)) & select);
+				result.delta_info.push_back(static_cast<TwccPacketStatus>(status));
+				if (status == 0) {
 					result.not_received += 1;
-				else
+					result.is_received.push_back(false);
+				}
+				else {
 					result.received += 1;
+					result.is_received.push_back(true);
+				}
 			}
 		}
 
@@ -684,22 +687,18 @@ public:
 			unsigned int byte_counter = 0;
 			unsigned int num_received_packets = 0;
 			unsigned int num_not_received_packets = 0;
-			
+			unsigned int packets_counted = 0;
 			float delta_sum = 0;
 			
-			while (byte_counter < len_in_bytes &&
-			       num_received_packets + num_not_received_packets < num_packets) {
+			while (byte_counter < len_in_bytes && packets_counted < num_packets) {
 				auto packet_chunk = ntohs(* reinterpret_cast<uint16_t *>(p_body));
 				if (isStatusVector(packet_chunk)) {
-					TwccStatusVectorChunk packet_result = processStatusVector(packet_chunk);
+					TwccStatusVectorChunk packet_result = processStatusVector(packet_chunk, num_packets - packets_counted);
 					num_received_packets += packet_result.received;
 					num_not_received_packets += packet_result.not_received;
-					if (packet_result.delta_exists) {
-						for (unsigned int i = 0; i < 7; i++) {
-							packet_info.emplace_back(1, packet_result.delta_info[i]);
-						}
-					} else {
-						packet_info.emplace_back(14, TwccPacketStatus::NO_DELTA);
+					isReceived.insert(isReceived.end(), packet_result.is_received.begin(), packet_result.is_received.end());
+					for (unsigned int i = 0; i < packet_result.received + packet_result.not_received; i++) {
+						packet_info.emplace_back(1, packet_result.delta_info[i]);
 					}
 				} else {
 					TwccRunLengthChunk packet_result = processRunLength(packet_chunk);
@@ -733,6 +732,7 @@ public:
 				}
 				byte_counter += 2;
 				p_body += 2;
+				packets_counted = num_received_packets + num_not_received_packets;
 			}
 			twccInterop->updateReceivedStatus(newSeqNum, isReceived);
 
@@ -774,7 +774,7 @@ public:
 			//          << " arrival_time_ms " << (int) (arrival_ts + delta_sum) << " seqnum "
 			//          << newSeqNum << std::endl;
 			if (byte_counter < len_in_bytes) {
-				if (len_in_bytes - byte_counter > 4)
+				if (len_in_bytes - byte_counter >= 4)
 					std::cout << "TWCC packet size-delta mismatch" << std::endl;
 			}
 		}
