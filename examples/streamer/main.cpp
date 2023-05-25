@@ -268,7 +268,7 @@ class CCResponder final : public rtc::MediaHandler {
 	const unsigned int overuse_time_th_ms = 10;
 	const float detector_k_u = 0.01, detector_k_d = 0.00018;
 	float del_var_th = 12.5;
-	std::chrono::system_clock::time_point previous_detector_time;
+	std::chrono::steady_clock::time_point previous_detector_time;
 	OverUseDetectorState prev_detector_state = OverUseDetectorState::NORMAL;
 
 	uint32_t inter_arrival_est = 0;
@@ -284,7 +284,8 @@ class CCResponder final : public rtc::MediaHandler {
 	RateControlState rate_control_state = RateControlState::INCREASE;
 	ConvergenceState convergence_state = ConvergenceState::DISTANT;
 
-	std::chrono::system_clock::time_point previous_rc_time; 
+	std::chrono::steady_clock::time_point previous_rc_time;
+
 	const float beta = 0.85;
 	float r_hat, a_hat;
 	unsigned int fps = 30; // TODO: move this to constructor
@@ -347,7 +348,7 @@ class CCResponder final : public rtc::MediaHandler {
 			result = OverUseDetectorState::NORMAL;
 		/*std::cout << "overuse prev " << detectorStateToString(prev_detector_state) << " new "
 		          << detectorStateToString(result) << std::endl;*/
-		auto time_now = std::chrono::system_clock::now();
+		auto time_now = std::chrono::steady_clock::now();
 		if (result != prev_detector_state) {
 			previous_detector_time = time_now;
 		} else {
@@ -379,7 +380,7 @@ class CCResponder final : public rtc::MediaHandler {
 	}
 
 	void run_rate_control() {
-		auto time_now = std::chrono::system_clock::now();
+		auto time_now = std::chrono::steady_clock::now();
 		auto time_since_last_update_ms = std::chrono::duration_cast<std::chrono::milliseconds>(time_now - previous_rc_time).count();
 		previous_rc_time = time_now;
 		r_hat = receivedBps.load() * 8;
@@ -605,7 +606,7 @@ public:
 	            int initial_bw_bps, std::shared_ptr<ChainInterop> interop)
 	    : m_ssrc(ssrc), m_change_bandwidth(callback), rtt_func(rtt_callback), r_hat(initial_bw_bps),
 	      a_hat(initial_bw_bps), twccInterop(interop) {
-		previous_detector_time = std::chrono::system_clock::now();
+		previous_detector_time = std::chrono::steady_clock::now();
 	}
 
 	rtc::message_ptr incoming(rtc::message_ptr message) override {
