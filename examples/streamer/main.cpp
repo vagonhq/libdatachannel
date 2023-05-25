@@ -285,7 +285,7 @@ class CCResponder final : public rtc::MediaHandler {
 	ConvergenceState convergence_state = ConvergenceState::DISTANT;
 
 	std::chrono::steady_clock::time_point previous_rc_time;
-
+	std::chrono::steady_clock::time_point previous_delay_bwe_time;
 	const float beta = 0.85;
 	float r_hat, a_hat;
 	unsigned int fps = 30; // TODO: move this to constructor
@@ -624,6 +624,7 @@ public:
 		//std::cout << "cc packet type" << (int)packet_type << std::endl;
 		// checking for receiver reports
 		if (packet_type == 201) {
+			auto time_now = std::chrono::steady_clock::now();
 			// 8 byte header + 24 byte report blocks
 			uint16_t length = message->size();
 			size_t num_blocks = (length - 8) / 24;
@@ -652,8 +653,9 @@ public:
 				if (m_ssrc == rtcp_report->getSSRC())
 					new_jitter = rtcp_report->jitter();
 			}
-			
-			if (arrival_time_ms.size() > 10) {
+			auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(time_now - previous_delay_bwe_time).count();
+			if (arrival_time_ms.size() > 10 && elapsed_ms > 500) {
+				previous_delay_bwe_time = time_now;
 				update_delay_filter(new_jitter);
 				
 				auto detector_state = run_overuse_detector();
