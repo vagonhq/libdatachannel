@@ -15,7 +15,7 @@ size_t FrameInfo::updateReceivedStatus(std::vector<bool> statuses, size_t packet
 	unsigned int bound = packets.size() - packetStartIdx < statuses.size() - statusStartIdx
 	                         ? packets.size() - packetStartIdx : statuses.size() - statusStartIdx;
 	for (unsigned int i = 0; i < bound; i++) {
-		packets.at(i + packetStartIdx).isReceived = statuses.at(statusStartIdx + i);
+		packets.at(i + packetStartIdx).isReceived |= statuses.at(statusStartIdx + i);
 	}
 	return bound;
 }
