@@ -36,8 +36,10 @@ struct ReceivedStats
 struct PacketInfo {
 	bool isReceived;
 	uint16_t numBytes;
+	double arrival_time;
 	PacketInfo(bool isReceived, uint16_t numBytes);
 };
+
 class FrameInfo {
 	std::chrono::steady_clock::time_point time;
 	std::vector<PacketInfo> packets;
@@ -45,11 +47,13 @@ class FrameInfo {
 public:
 	FrameInfo(std::chrono::steady_clock::time_point time);
 	void addPacket(uint16_t numBytes);
-	size_t updateReceivedStatus(std::vector<bool> statuses, size_t packetStartIdx, size_t statusStartIdx);
+	size_t updateReceivedStatus(std::vector<bool> statuses, std::vector<double> arrival_times, size_t packetStartIdx, size_t statusStartIdx);
 	size_t size() const;
 	ReceivedStats getFrameSizeInBytes() const;
 	std::chrono::steady_clock::time_point getTime() const;
 	bool isFullyReceived() const;
+	double findLastArrivalTime() const;
+	std::chrono::steady_clock::time_point getDepartureTime() const;
 };
 
 class RTC_CPP_EXPORT ChainInterop {
@@ -61,11 +65,12 @@ public:
 	ChainInterop(int thresholdMs);
 	void addFrame(uint16_t seqNum);
 	void addPacketToFrame(uint16_t seqNum, uint16_t numBytes);
-	size_t updateReceivedStatus(uint16_t baseSeqNum, std::vector<bool> statuses);
+	size_t updateReceivedStatus(uint16_t baseSeqNum, std::vector<bool> statuses, std::vector<double> arrival_times);
 	double getReceivedBitsPerSecond();
 	void deleteOldFrames(std::chrono::steady_clock::time_point time_now);
 	size_t size() const;
 	size_t sizeReceived() const;
+	long long findArrivalIntervalLastTwoFramesMS() const;
 };
 } // namespace rtc
 

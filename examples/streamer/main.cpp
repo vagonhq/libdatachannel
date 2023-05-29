@@ -69,7 +69,7 @@ DispatchQueue MainThread("Main");
 /// Audio and video stream
 optional<shared_ptr<Stream>> avStream = nullopt;
 
-const string defaultRootDirectory = "../../../examples/streamer/samples/";
+const string defaultRootDirectory = "../../../../../examples/streamer/samples/";
 const string defaultH264SamplesDirectory = defaultRootDirectory + "h264/";
 string h264SamplesDirectory = defaultH264SamplesDirectory;
 const string defaultOpusSamplesDirectory = defaultRootDirectory + "opus/";
@@ -310,32 +310,11 @@ class CCResponder final : public rtc::MediaHandler {
 
 		var_v = alpha * var_v + (1 - alpha) * z_i * z_i;
 		var_v = var_v < 1 ? 1 : var_v;
-		auto [min_idx, min] = arrival_time_ms.findMinDifference();
-		float f_max = 1.0 / min;
-		alpha = pow(1 - chi, 30 / (1000 * f_max));
+		alpha = pow(1 - chi, fps / (5000.0)); // This formula is from Interceptor API of Pion
 
 		//std::cout << "mi " << m_i << " mi_1 " << m_i_1 << " var_v " << var_v << " e_i " << e_i
 		//          << " alpha " << alpha << " fmax " << f_max << " size " << arrival_time_ms.size()
 		//          << std::endl;
-
-		if (f_max == std::numeric_limits<float>::infinity()) {
-			std::cout << "FMAX ";
-			auto len = arrival_time_ms.size();
-			std::string contents = std::string();
-			for (auto f : arrival_time_ms)
-				contents += std::to_string(f) + std::string(" ");
-			contents += std::string("\nseqnums ");
-			for (auto f : seqnums)
-				contents += std::to_string(f) + std::string(" ");
-			contents += std::string("\nts ");
-			for (auto f : arrival_timestamps)
-				contents += std::to_string(f) + std::string(" ");
-			contents += std::string("\ndeltas ");
-			for (auto f : deltas)
-				contents += std::to_string(f) + std::string(" ");
-
-			std::cout << contents << std::endl;
-		}
 	}
 
 	OverUseDetectorState run_overuse_detector() {
@@ -363,8 +342,7 @@ class CCResponder final : public rtc::MediaHandler {
 		}
 
 		if (abs(m_i) <= del_var_th + 15) {
-			float inter_arrival =
-			    arrival_time_ms.back() - arrival_time_ms.at(arrival_time_ms.size() - 2);
+			float inter_arrival = twccInterop->findArrivalIntervalLastTwoFramesMS();
 			float k = abs(m_i) < del_var_th ? detector_k_d : detector_k_u;
 
 			float temp = del_var_th + inter_arrival * k * (abs(m_i) - del_var_th);
@@ -683,6 +661,7 @@ public:
 			auto num_packets = rtcp->getPacketStatusCount();
 			std::vector<TwccPacketInfo> packet_info;
 			std::vector<bool> isReceived;
+			std::vector<double> packet_arrivals;
 			uint32_t arrival_ts = rtcp->getReferenceTime() * 64;
 
 			auto root = rtcp->getBody();
@@ -691,8 +670,14 @@ public:
 			unsigned int num_received_packets = 0;
 			unsigned int num_not_received_packets = 0;
 			unsigned int packets_counted = 0;
-			float delta_sum = 0;
+			double delta_sum = 0;
 			
+			if (arrival_time_ms.size() == 0) {
+				reference_timestamp = arrival_ts;
+				arrival_ts = 0;
+			} else
+				arrival_ts -= reference_timestamp;
+
 			while (byte_counter < len_in_bytes && packets_counted < num_packets) {
 				auto packet_chunk = ntohs(* reinterpret_cast<uint16_t *>(p_body));
 				if (isStatusVector(packet_chunk)) {
@@ -737,38 +722,35 @@ public:
 				p_body += 2;
 				packets_counted = num_received_packets + num_not_received_packets;
 			}
-			twccInterop->updateReceivedStatus(newSeqNum, isReceived);
 
 			for (unsigned int i = 0; i < packet_info.size(); i++) {
 				auto info = packet_info[i];
 				for (unsigned int j = 0; j < info.length; j++) {
-					float temp;
+					double temp;
 					switch (info.delta_info) { 
 					case TwccPacketStatus::RECEIVED_SMALL_DELTA:
-						delta_sum += (float)(*reinterpret_cast<uint8_t *>(p_body)) * 0.25;
+						delta_sum += (double)(*reinterpret_cast<uint8_t *>(p_body)) * 0.25;
 						p_body += 1;
 						byte_counter += 1;
+						packet_arrivals.push_back(arrival_ts + delta_sum);
 						break;
 					case TwccPacketStatus::RECEIVED_LARGE_DELTA:
-						temp = (float)ntohs(*reinterpret_cast<int16_t *>(p_body)) * 0.25;
+						temp = (double)ntohs(*reinterpret_cast<int16_t *>(p_body)) * 0.25;
 						if (temp < 0)
 							std::cout << "negative delta" << std::endl;
 						delta_sum += temp;
 						p_body += 2;
 						byte_counter += 2;
+						packet_arrivals.push_back(arrival_ts + delta_sum);
 						break;
 					default:
+						packet_arrivals.push_back(0);
 						break;
 					}
 				}
 			}
-			if (arrival_time_ms.size() == 0) {
-				reference_timestamp = arrival_ts;
-				arrival_ts = 0;
-			}
-			else
-				arrival_ts -= reference_timestamp;
 
+			twccInterop->updateReceivedStatus(newSeqNum, isReceived, packet_arrivals);
 			arrival_timestamps.insert(arrival_ts);
 			seqnums.insert(newSeqNum);
 			arrival_time_ms.insert(arrival_ts + delta_sum);
