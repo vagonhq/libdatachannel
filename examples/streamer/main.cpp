@@ -645,18 +645,7 @@ public:
 			}
 		} else if (packet_type == 205) {
 			auto rtcp = reinterpret_cast<RtcpTwcc *>(message->data());
-			// FIXME: handle wraparound
 			auto newSeqNum = rtcp->getBaseSeqNum();
-			if (last_twcc_packet_seqnum < newSeqNum) {
-				last_twcc_packet_seqnum = newSeqNum;
-			} else {
-				if (newSeqNum < 1000 && last_twcc_packet_seqnum > 65000)
-					last_twcc_packet_seqnum = newSeqNum;
-				else
-					return message;
-			}
-
-
 			auto len_in_bytes = rtcp->header.header.lengthInBytes() - 20;
 			auto num_packets = rtcp->getPacketStatusCount();
 			std::vector<TwccPacketInfo> packet_info;
@@ -726,7 +715,7 @@ public:
 			for (unsigned int i = 0; i < packet_info.size(); i++) {
 				auto info = packet_info[i];
 				for (unsigned int j = 0; j < info.length; j++) {
-					double temp;
+					int16_t temp;
 					switch (info.delta_info) { 
 					case TwccPacketStatus::RECEIVED_SMALL_DELTA:
 						delta_sum += (double)(*reinterpret_cast<uint8_t *>(p_body)) * 0.25;
@@ -735,10 +724,8 @@ public:
 						packet_arrivals.push_back(arrival_ts + delta_sum);
 						break;
 					case TwccPacketStatus::RECEIVED_LARGE_DELTA:
-						temp = (double)ntohs(*reinterpret_cast<int16_t *>(p_body)) * 0.25;
-						if (temp < 0)
-							std::cout << "negative delta" << std::endl;
-						delta_sum += temp;
+						temp = (int16_t)ntohs(*reinterpret_cast<uint16_t *>(p_body));
+						delta_sum += (double) temp * 0.25;;
 						p_body += 2;
 						byte_counter += 2;
 						packet_arrivals.push_back(arrival_ts + delta_sum);
