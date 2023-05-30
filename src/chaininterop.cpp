@@ -16,7 +16,7 @@ size_t FrameInfo::updateReceivedStatus(std::vector<bool> statuses, std::vector<d
 	                         ? packets.size() - packetStartIdx : statuses.size() - statusStartIdx;
 	for (unsigned int i = 0; i < bound; i++) {
 		packets.at(i + packetStartIdx).isReceived |= statuses.at(statusStartIdx + i);
-		packets.at(i + packetStartIdx).arrival_time += arrival_times.at(statusStartIdx + i);
+		packets.at(i + packetStartIdx).arrival_time = arrival_times.at(statusStartIdx + i);
 	}
 	return bound;
 }
