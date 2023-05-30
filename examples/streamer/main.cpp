@@ -692,12 +692,12 @@ public:
 					TwccRunLengthChunk packet_result = processRunLength(packet_chunk);
 					if (packet_result.received) {
 						num_received_packets += packet_result.received;
-						for (int i = 0; i < num_received_packets; i++)
+						for (int i = 0; i < packet_result.received; i++)
 							isReceived.push_back(true);
 					}
 					if (packet_result.not_received) {
 						num_not_received_packets += packet_result.not_received;
-						for (int i = 0; i < num_received_packets; i++)
+						for (int i = 0; i < packet_result.not_received; i++)
 							isReceived.push_back(false);
 					}
 					
