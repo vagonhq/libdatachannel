@@ -1,19 +1,9 @@
 /**
  * Copyright (c) 2020 Paul-Louis Ageneau
  *
- * This library is free software; you can redistribute it and/or
- * modify it under the terms of the GNU Lesser General Public
- * License as published by the Free Software Foundation; either
- * version 2.1 of the License, or (at your option) any later version.
- *
- * This library is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * Lesser General Public License for more details.
- *
- * You should have received a copy of the GNU Lesser General Public
- * License along with this library; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
 #include "tlstransport.hpp"
@@ -95,27 +85,26 @@ TlsTransport::TlsTransport(shared_ptr<TcpTransport> lower, optional<string> host
 
 TlsTransport::~TlsTransport() {
 	stop();
-
 	gnutls_deinit(mSession);
 }
 
 void TlsTransport::start() {
-	Transport::start();
-
-	registerIncoming();
+	if (mStarted.exchange(true))
+		return;
 
 	PLOG_DEBUG << "Starting TLS recv thread";
+	registerIncoming();
 	mRecvThread = std::thread(&TlsTransport::runRecvLoop, this);
 }
 
-bool TlsTransport::stop() {
-	if (!Transport::stop())
-		return false;
+void TlsTransport::stop() {
+	if (!mStarted.exchange(false))
+		return;
 
 	PLOG_DEBUG << "Stopping TLS recv thread";
+	unregisterIncoming();
 	mIncomingQueue.stop();
 	mRecvThread.join();
-	return true;
 }
 
 bool TlsTransport::send(message_ptr message) {
@@ -375,29 +364,28 @@ TlsTransport::TlsTransport(shared_ptr<TcpTransport> lower, optional<string> host
 
 TlsTransport::~TlsTransport() {
 	stop();
-
 	SSL_free(mSsl);
 	SSL_CTX_free(mCtx);
 }
 
 void TlsTransport::start() {
-	Transport::start();
-
-	registerIncoming();
+	if (mStarted.exchange(true))
+		return;
 
 	PLOG_DEBUG << "Starting TLS recv thread";
+	registerIncoming();
 	mRecvThread = std::thread(&TlsTransport::runRecvLoop, this);
 }
 
-bool TlsTransport::stop() {
-	if (!Transport::stop())
-		return false;
+void TlsTransport::stop() {
+	if (!mStarted.exchange(false))
+		return;
 
 	PLOG_DEBUG << "Stopping TLS recv thread";
+	unregisterIncoming();
 	mIncomingQueue.stop();
 	mRecvThread.join();
 	SSL_shutdown(mSsl);
-	return true;
 }
 
 bool TlsTransport::send(message_ptr message) {

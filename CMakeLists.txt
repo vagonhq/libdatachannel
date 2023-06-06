@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.7)
 project(libdatachannel
-	VERSION 0.17.11
+	VERSION 0.18.0
 	LANGUAGES CXX)
 set(PROJECT_DESCRIPTION "C/C++ WebRTC network library featuring Data Channels, Media Transport, and WebSockets")
 
@@ -64,6 +64,8 @@ set(LIBDATACHANNEL_SOURCES
 	${CMAKE_CURRENT_SOURCE_DIR}/src/mediahandlerelement.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/mediahandlerrootelement.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/rtcpnackresponder.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/src/rtptwcchandler.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/src/chaininterop.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/rtp.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/capi.cpp
 )
@@ -99,6 +101,8 @@ set(LIBDATACHANNEL_HEADERS
 	${CMAKE_CURRENT_SOURCE_DIR}/include/rtc/mediahandlerelement.hpp
 	${CMAKE_CURRENT_SOURCE_DIR}/include/rtc/mediahandlerrootelement.hpp
 	${CMAKE_CURRENT_SOURCE_DIR}/include/rtc/rtcpnackresponder.hpp
+	${CMAKE_CURRENT_SOURCE_DIR}/include/rtc/rtptwcchandler.hpp
+	${CMAKE_CURRENT_SOURCE_DIR}/include/rtc/chaininterop.hpp
 	${CMAKE_CURRENT_SOURCE_DIR}/include/rtc/utils.hpp
 )
 
@@ -124,6 +128,7 @@ set(LIBDATACHANNEL_IMPL_SOURCES
 	${CMAKE_CURRENT_SOURCE_DIR}/src/impl/tcpserver.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/impl/tcptransport.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/impl/tlstransport.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/src/impl/transport.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/impl/verifiedtlstransport.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/impl/websocket.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/impl/websocketserver.cpp
@@ -155,6 +160,7 @@ set(LIBDATACHANNEL_IMPL_HEADERS
 	${CMAKE_CURRENT_SOURCE_DIR}/src/impl/tcpserver.hpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/impl/tcptransport.hpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/impl/tlstransport.hpp
+	${CMAKE_CURRENT_SOURCE_DIR}/src/impl/transport.hpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/impl/verifiedtlstransport.hpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/impl/websocket.hpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/impl/websocketserver.hpp
@@ -225,19 +231,23 @@ add_library(datachannel SHARED
 	${LIBDATACHANNEL_HEADERS}
 	${LIBDATACHANNEL_IMPL_SOURCES}
 	${LIBDATACHANNEL_IMPL_HEADERS})
+set_target_properties(datachannel PROPERTIES
+	VERSION ${PROJECT_VERSION}
+	SOVERSION ${PROJECT_VERSION}
+	CXX_STANDARD 17
+	CXX_VISIBILITY_PRESET default)
+target_compile_definitions(datachannel PRIVATE RTC_EXPORTS)
+
 add_library(datachannel-static STATIC EXCLUDE_FROM_ALL
 	${LIBDATACHANNEL_SOURCES}
 	${LIBDATACHANNEL_HEADERS}
 	${LIBDATACHANNEL_IMPL_SOURCES}
 	${LIBDATACHANNEL_IMPL_HEADERS})
-
-set_target_properties(datachannel PROPERTIES
-	VERSION ${PROJECT_VERSION}
-	CXX_STANDARD 17
-	CXX_VISIBILITY_PRESET default)
 set_target_properties(datachannel-static PROPERTIES
 	VERSION ${PROJECT_VERSION}
 	CXX_STANDARD 17)
+target_compile_definitions(datachannel-static PRIVATE RTC_EXPORTS)
+target_compile_definitions(datachannel-static PUBLIC RTC_STATIC)
 
 target_include_directories(datachannel PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>

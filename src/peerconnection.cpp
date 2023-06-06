@@ -2,19 +2,9 @@
  * Copyright (c) 2019 Paul-Louis Ageneau
  * Copyright (c) 2020 Filip Klembara (in2core)
  *
- * This library is free software; you can redistribute it and/or
- * modify it under the terms of the GNU Lesser General Public
- * License as published by the Free Software Foundation; either
- * version 2.1 of the License, or (at your option) any later version.
- *
- * This library is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * Lesser General Public License for more details.
- *
- * You should have received a copy of the GNU Lesser General Public
- * License along with this library; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
 #include "peerconnection.hpp"
@@ -49,7 +39,7 @@ PeerConnection::PeerConnection(Configuration config)
 
 PeerConnection::~PeerConnection() {
 	try {
-		close();
+		impl()->remoteClose();
 	} catch (const std::exception &e) {
 		PLOG_ERROR << e.what();
 	}
@@ -248,6 +238,12 @@ void PeerConnection::addRemoteCandidate(Candidate candidate) {
 	PLOG_VERBOSE << "Adding remote candidate: " << string(candidate);
 	impl()->processRemoteCandidate(std::move(candidate));
 }
+
+void PeerConnection::setMediaHandler(shared_ptr<MediaHandler> handler) {
+	impl()->setMediaHandler(std::move(handler));
+};
+
+shared_ptr<MediaHandler> PeerConnection::getMediaHandler() { return impl()->getMediaHandler(); };
 
 optional<string> PeerConnection::localAddress() const {
 	auto iceTransport = impl()->getIceTransport();

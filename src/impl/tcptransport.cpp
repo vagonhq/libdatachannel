@@ -1,19 +1,9 @@
 /**
  * Copyright (c) 2020 Paul-Louis Ageneau
  *
- * This library is free software; you can redistribute it and/or
- * modify it under the terms of the GNU Lesser General Public
- * License as published by the Free Software Foundation; either
- * version 2.1 of the License, or (at your option) any later version.
- *
- * This library is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * Lesser General Public License for more details.
- *
- * You should have received a copy of the GNU Lesser General Public
- * License along with this library; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
 #include "tcptransport.hpp"
@@ -69,7 +59,6 @@ TcpTransport::TcpTransport(socket_t sock, state_callback callback)
 }
 
 TcpTransport::~TcpTransport() {
-	stop();
 	close();
 }
 
@@ -82,22 +71,12 @@ void TcpTransport::setReadTimeout(std::chrono::milliseconds readTimeout) {
 }
 
 void TcpTransport::start() {
-	Transport::start();
-
 	if (mSock == INVALID_SOCKET) {
 		connect();
 	} else {
 		changeState(State::Connected);
 		setPoll(PollService::Direction::In);
 	}
-}
-
-bool TcpTransport::stop() {
-	if (!Transport::stop())
-		return false;
-
-	close();
-	return true;
 }
 
 bool TcpTransport::send(message_ptr message) {

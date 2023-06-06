@@ -1,19 +1,9 @@
 /**
  * Copyright (c) 2019 Paul-Louis Ageneau
  *
- * This library is free software; you can redistribute it and/or
- * modify it under the terms of the GNU Lesser General Public
- * License as published by the Free Software Foundation; either
- * version 2.1 of the License, or (at your option) any later version.
- *
- * This library is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * Lesser General Public License for more details.
- *
- * You should have received a copy of the GNU Lesser General Public
- * License along with this library; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
 #include "rtc/rtc.hpp"
@@ -81,7 +71,6 @@ void test_track() {
 
 	shared_ptr<Track> t2;
 	string newTrackMid;
-	Description::Video media;
 	pc2.onTrack([&t2, &newTrackMid](shared_ptr<Track> t) {
 		string mid = t->mid();
 		cout << "Track 2: Received track with mid \"" << mid << "\"" << endl;
@@ -101,7 +90,7 @@ void test_track() {
 	// Test opening a track
 	newTrackMid = "test";
 
-	media = Description::Video(newTrackMid, Description::Direction::SendOnly);
+	Description::Video media(newTrackMid, Description::Direction::SendOnly);
 	media.addH264Codec(96);
 	media.setBitrate(3000);
 	media.addSSRC(1234, "video-send");
@@ -125,14 +114,14 @@ void test_track() {
 	// Test renegotiation
 	newTrackMid = "added";
 
-	media = Description::Video(newTrackMid, Description::Direction::SendOnly);
-	media.addH264Codec(96);
-	media.setBitrate(3000);
-	media.addSSRC(2468, "video-send");
+	Description::Video media2(newTrackMid, Description::Direction::SendOnly);
+	media2.addH264Codec(96);
+	media2.setBitrate(3000);
+	media2.addSSRC(2468, "video-send");
 
 	// NOTE: Overwriting the old shared_ptr for t1 will cause it's respective
 	//       track to be dropped (so it's SSRCs won't be on the description next time)
-	t1 = pc1.addTrack(media);
+	t1 = pc1.addTrack(media2);
 
 	pc1.setLocalDescription();
 

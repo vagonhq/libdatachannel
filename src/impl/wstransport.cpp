@@ -1,24 +1,16 @@
 /**
  * Copyright (c) 2020-2021 Paul-Louis Ageneau
  *
- * This library is free software; you can redistribute it and/or
- * modify it under the terms of the GNU Lesser General Public
- * License as published by the Free Software Foundation; either
- * version 2.1 of the License, or (at your option) any later version.
- *
- * This library is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * Lesser General Public License for more details.
- *
- * You should have received a copy of the GNU Lesser General Public
- * License along with this library; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
 #include "wstransport.hpp"
 #include "tcptransport.hpp"
+#include "threadpool.hpp"
 #include "tlstransport.hpp"
+#include "utils.hpp"
 
 #if RTC_ENABLE_WEBSOCKET
 
@@ -49,8 +41,6 @@ namespace rtc::impl {
 using std::to_integer;
 using std::to_string;
 using std::chrono::system_clock;
-using random_bytes_engine =
-    std::independent_bits_engine<std::default_random_engine, CHAR_BIT, unsigned short>;
 
 WsTransport::WsTransport(variant<shared_ptr<TcpTransport>, shared_ptr<TlsTransport>> lower,
                          shared_ptr<WsHandshake> handshake, int maxOutstandingPings,
@@ -69,11 +59,9 @@ WsTransport::WsTransport(variant<shared_ptr<TcpTransport>, shared_ptr<TlsTranspo
 	PLOG_DEBUG << "Initializing WebSocket transport";
 }
 
-WsTransport::~WsTransport() { stop(); }
+WsTransport::~WsTransport() { unregisterIncoming(); }
 
 void WsTransport::start() {
-	Transport::start();
-
 	registerIncoming();
 
 	changeState(State::Connecting);
@@ -81,13 +69,7 @@ void WsTransport::start() {
 		sendHttpRequest();
 }
 
-bool WsTransport::stop() {
-	if (!Transport::stop())
-		return false;
-
-	close();
-	return true;
-}
+void WsTransport::stop() { close(); }
 
 bool WsTransport::send(message_ptr message) {
 	if (!message || state() != State::Connected)
@@ -96,6 +78,32 @@ bool WsTransport::send(message_ptr message) {
 	PLOG_VERBOSE << "Send size=" << message->size();
 	return sendFrame({message->type == Message::String ? TEXT_FRAME : BINARY_FRAME, message->data(),
 	                  message->size(), true, mIsClient});
+}
+
+void WsTransport::close() {
+	if (state() != State::Connected)
+		return;
+
+	if (mCloseSent.exchange(true))
+		return;
+
+	PLOG_INFO << "WebSocket closing";
+	try {
+		sendFrame({CLOSE, NULL, 0, true, mIsClient});
+	} catch (const std::exception &e) {
+		// The connection might not be open anymore
+		PLOG_DEBUG << "Unable to send WebSocket close frame: " << e.what();
+		changeState(State::Disconnected);
+		return;
+	}
+
+	ThreadPool::Instance().schedule(std::chrono::seconds(10),
+	                                [this, weak_this = weak_from_this()]() {
+		                                if (auto shared_this = weak_this.lock()) {
+			                                PLOG_DEBUG << "WebSocket close timeout";
+			                                changeState(State::Disconnected);
+		                                }
+	                                });
 }
 
 void WsTransport::incoming(message_ptr message) {
@@ -169,19 +177,6 @@ void WsTransport::incoming(message_ptr message) {
 	} else {
 		PLOG_ERROR << "WebSocket handshake failed";
 		changeState(State::Failed);
-	}
-}
-
-void WsTransport::close() {
-	if (state() == State::Connected) {
-		PLOG_INFO << "WebSocket closing";
-		try {
-			sendFrame({CLOSE, NULL, 0, true, mIsClient});
-		} catch (const std::exception &e) {
-			// Ignore error as the connection might not be open anymore
-			PLOG_DEBUG << "Unable to send WebSocket close frame: " << e.what();
-		}
-		changeState(State::Disconnected);
 	}
 }
 
@@ -327,14 +322,15 @@ void WsTransport::recvFrame(const Frame &frame) {
 		break;
 	}
 	case CLOSE: {
-		close();
 		PLOG_INFO << "WebSocket closed";
+		close();
 		changeState(State::Disconnected);
 		break;
 	}
 	default: {
+		PLOG_ERROR << "Unknown WebSocket opcode: " + to_string(frame.opcode);
 		close();
-		throw std::invalid_argument("Unknown WebSocket opcode: " + to_string(frame.opcode));
+		break;
 	}
 	}
 }
@@ -363,13 +359,10 @@ bool WsTransport::sendFrame(const Frame &frame) {
 	}
 
 	if (frame.mask) {
-		auto seed = static_cast<unsigned int>(system_clock::now().time_since_epoch().count());
-		random_bytes_engine generator(seed);
-
 		byte *maskingKey = reinterpret_cast<byte *>(cur);
 
 		auto u = reinterpret_cast<uint8_t *>(maskingKey);
-		std::generate(u, u + 4, [&]() { return uint8_t(generator()); });
+		std::generate(u, u + 4, utils::random_bytes_engine());
 		cur += 4;
 
 		for (size_t i = 0; i < frame.length; ++i)

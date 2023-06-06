@@ -1,19 +1,9 @@
 /**
  * Copyright (c) 2020-2021 Paul-Louis Ageneau
  *
- * This library is free software; you can redistribute it and/or
- * modify it under the terms of the GNU Lesser General Public
- * License as published by the Free Software Foundation; either
- * version 2.1 of the License, or (at your option) any later version.
- *
- * This library is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * Lesser General Public License for more details.
- *
- * You should have received a copy of the GNU Lesser General Public
- * License along with this library; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
 #if RTC_ENABLE_WEBSOCKET
@@ -124,17 +114,16 @@ void WebSocket::close() {
 		PLOG_VERBOSE << "Closing WebSocket";
 		changeState(State::Closing);
 		if (auto transport = std::atomic_load(&mWsTransport))
-			transport->close();
+			transport->stop();
 		else
 			remoteClose();
 	}
 }
 
 void WebSocket::remoteClose() {
-	if (state != State::Closed) {
-		close();
+	close();
+	if (state.load() != State::Closed)
 		closeTransports();
-	}
 }
 
 bool WebSocket::isOpen() const { return state == State::Open; }
@@ -424,9 +413,12 @@ void WebSocket::closeTransports() {
 
 	TearDownProcessor::Instance().enqueue(
 	    [transports = std::move(transports), token = Init::Instance().token()]() mutable {
-		    for (const auto &t : transports)
-			    if (t)
+		    for (const auto &t : transports) {
+			    if (t) {
 				    t->stop();
+				    break;
+			    }
+		    }
 
 		    for (auto &t : transports)
 			    t.reset();

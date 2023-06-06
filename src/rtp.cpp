@@ -3,19 +3,9 @@
  * Copyright (c) 2020 Paul-Louis Ageneau
  * Copyright (c) 2020 Filip Klembara (in2core)
  *
- * This library is free software; you can redistribute it and/or
- * modify it under the terms of the GNU Lesser General Public
- * License as published by the Free Software Foundation; either
- * version 2.1 of the License, or (at your option) any later version.
- *
- * This library is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * Lesser General Public License for more details.
- *
- * You should have received a copy of the GNU Lesser General Public
- * License along with this library; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
 #include "rtp.hpp"
@@ -657,6 +647,33 @@ size_t RtpRtx::copyTo(RtpHeader *dest, size_t totalSize, uint8_t originalPayload
 	dest->setPayloadType(originalPayloadType);
 	memmove(dest->getBody(), getBody(), getBodySize(totalSize));
 	return totalSize;
+}
+
+uint16_t RtcpTwcc::getBaseSeqNum() const { return ntohs(_baseSeqNum); }
+
+uint16_t RtcpTwcc::getPacketStatusCount() const { return ntohs(_packetStatusCount); }
+
+uint32_t RtcpTwcc::getReferenceTime() const {
+	uint32_t refTime = ((uint32_t)_referenceTime[0] << 16) | ((uint32_t)_referenceTime[1] << 8) |
+	                   ((uint32_t)_referenceTime[2]);
+	return refTime;
+}
+
+uint8_t RtcpTwcc::getFbPacketCount() const { return _fbPacketCount; }
+
+char *RtcpTwcc::getBody() { return reinterpret_cast<char *>(&_fbPacketCount + 1) ; }
+
+void RtpTwccExt::setExtId(uint8_t id) { _id = (id << 4) | 0x01; }
+
+void RtpTwccExt::setTwccSeqNum(uint16_t seqNum) { _twccSeqNum = htons(seqNum); }
+
+void RtpTwccExt::preparePacket(uint8_t extId) {
+	const uint16_t profileId = (uint16_t)(0xBE << 8) | 0xDE;
+	header.setProfileSpecificId(profileId);
+	header.setHeaderLength(1);
+	setExtId(extId);
+	setTwccSeqNum(0);
+	_zeroPad = 0;
 }
 
 }; // namespace rtc
