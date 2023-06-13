@@ -424,15 +424,15 @@ void PeerConnection::forwardMessage(message_ptr message) {
 		return;
 	}
 
+	auto iceTransport = std::atomic_load(&mIceTransport);
+	auto sctpTransport = std::atomic_load(&mSctpTransport);
+	if (!iceTransport || !sctpTransport)
+		return;
+
 	const uint16_t stream = uint16_t(message->stream);
 	auto channel = findDataChannel(stream);
 
 	if (DataChannel::IsOpenMessage(message)) {
-		auto iceTransport = getIceTransport();
-		auto sctpTransport = getSctpTransport();
-		if (!iceTransport || !sctpTransport)
-			return;
-
 		const uint16_t remoteParity = (iceTransport->role() == Description::Role::Active) ? 1 : 0;
 		if (stream % 2 != remoteParity) {
 			// The odd/even rule is violated, close the DataChannel
@@ -462,9 +462,7 @@ void PeerConnection::forwardMessage(message_ptr message) {
 
 		// Invalid, close the DataChannel
 		PLOG_WARNING << "Got unexpected message on stream " << stream;
-		if (auto sctpTransport = getSctpTransport())
-			sctpTransport->closeStream(message->stream);
-
+		sctpTransport->closeStream(message->stream);
 		return;
 	}
 
@@ -501,11 +499,16 @@ void PeerConnection::forwardMedia(message_ptr message) {
 				ssrcs.insert(rtcpfb->packetSenderSSRC());
 				ssrcs.insert(rtcpfb->mediaSourceSSRC());
 
-			} else if (header->payloadType() == 200 || header->payloadType() == 201) {
+			} else if (header->payloadType() == 200) {
 				auto rtcpsr = reinterpret_cast<RtcpSr *>(header);
 				ssrcs.insert(rtcpsr->senderSSRC());
 				for (int i = 0; i < rtcpsr->header.reportCount(); ++i)
 					ssrcs.insert(rtcpsr->getReportBlock(i)->getSSRC());
+			} else if (header->payloadType() == 201) {
+				auto rtcprr = reinterpret_cast<RtcpRr *>(header);
+				ssrcs.insert(rtcprr->senderSSRC());
+				for (int i = 0; i < rtcprr->header.reportCount(); ++i)
+					ssrcs.insert(rtcprr->getReportBlock(i)->getSSRC());
 			} else if (header->payloadType() == 202) {
 				auto sdes = reinterpret_cast<RtcpSdes *>(header);
 				if (!sdes->isValid()) {
@@ -591,7 +594,7 @@ shared_ptr<DataChannel> PeerConnection::emplaceDataChannel(string label, DataCha
 	lock.unlock(); // we are going to call assignDataChannels()
 
 	// If SCTP is connected, assign and open now
-	auto sctpTransport = getSctpTransport();
+	auto sctpTransport = std::atomic_load(&mSctpTransport);
 	if (sctpTransport && sctpTransport->state() == SctpTransport::State::Connected) {
 		assignDataChannels();
 		channel->open(sctpTransport);
@@ -617,7 +620,7 @@ uint16_t PeerConnection::maxDataChannelStream() const {
 void PeerConnection::assignDataChannels() {
 	std::unique_lock lock(mDataChannelsMutex); // we are going to emplace
 
-	auto iceTransport = getIceTransport();
+	auto iceTransport = std::atomic_load(&mIceTransport);
 	if (!iceTransport)
 		throw std::logic_error("Attempted to assign DataChannels without ICE transport");
 
@@ -1019,12 +1022,6 @@ void PeerConnection::processRemoteDescription(Description description) {
 		mRemoteDescription->addCandidates(std::move(existingCandidates));
 	}
 
-	auto iceTransport = initIceTransport();
-	if (!iceTransport)
-		return; // closed
-
-	iceTransport->setRemoteDescription(std::move(description));
-
 	if (description.hasApplication()) {
 		auto dtlsTransport = std::atomic_load(&mDtlsTransport);
 		auto sctpTransport = std::atomic_load(&mSctpTransport);
@@ -1115,7 +1112,13 @@ void PeerConnection::triggerPendingDataChannels() {
 			break;
 
 		auto impl = std::move(*next);
-		dataChannelCallback(std::make_shared<rtc::DataChannel>(impl));
+
+		try {
+			dataChannelCallback(std::make_shared<rtc::DataChannel>(impl));
+		} catch (const std::exception &e) {
+			PLOG_WARNING << "Uncaught exception in callback: " << e.what();
+		}
+
 		impl->triggerOpen();
 	}
 }
@@ -1127,7 +1130,13 @@ void PeerConnection::triggerPendingTracks() {
 			break;
 
 		auto impl = std::move(*next);
-		trackCallback(std::make_shared<rtc::Track>(impl));
+
+		try {
+			trackCallback(std::make_shared<rtc::Track>(impl));
+		} catch (const std::exception &e) {
+			PLOG_WARNING << "Uncaught exception in callback: " << e.what();
+		}
+
 		// Do not trigger open immediately for tracks as it'll be done later
 	}
 }

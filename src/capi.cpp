@@ -188,7 +188,7 @@ int copyAndReturn(string s, char *buffer, int size) {
 	if (!buffer)
 		return int(s.size() + 1);
 
-	if (size < int(s.size()))
+	if (size < int(s.size() + 1))
 		return RTC_ERR_TOO_SMALL;
 
 	std::copy(s.begin(), s.end(), buffer);
@@ -205,7 +205,6 @@ int copyAndReturn(binary b, char *buffer, int size) {
 
 	auto data = reinterpret_cast<const char *>(b.data());
 	std::copy(data, data + b.size(), buffer);
-	buffer[b.size()] = '\0';
 	return int(b.size());
 }
 
@@ -1036,7 +1035,7 @@ int rtcAddTrackEx(int pc, const rtcTrackInit *init) {
 				desc.addVP8Codec(init->payloadType);
 				break;
 			case RTC_CODEC_VP9:
-				desc.addVP8Codec(init->payloadType);
+				desc.addVP9Codec(init->payloadType);
 				break;
 			default:
 				break;
