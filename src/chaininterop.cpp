@@ -2,6 +2,7 @@
 
 #include "chaininterop.hpp"
 #include <algorithm>
+#include <cmath>
 
 namespace rtc {
 
@@ -119,7 +120,8 @@ double ChainInterop::getReceivedBitsPerSecond() {
 	double elapsedSeconds =
 	    (double)std::chrono::duration_cast<std::chrono::milliseconds>(timeNow - firstPacketTime).count() / 1000.0;
 	double receivedBitrate = (double)allStats.receivedBytes * 8 / elapsedSeconds;
-
+	if (!isfinite(receivedBitrate))
+		return 0;
 	return receivedBitrate;
 }
 
