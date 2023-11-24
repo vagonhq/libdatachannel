@@ -67,7 +67,7 @@ public:
 	void addPacketToFrame(uint16_t seqNum, uint16_t numBytes);
 	size_t updateReceivedStatus(uint16_t baseSeqNum, std::vector<bool> statuses, std::vector<double> arrival_times);
 	double getReceivedBitsPerSecond();
-	void deleteOldFrames(std::chrono::steady_clock::time_point time_now);
+	void deleteOldFrames();
 	size_t size() const;
 	size_t sizeReceived() const;
 	long long findArrivalIntervalLastTwoFramesMS() const;
