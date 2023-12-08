@@ -587,11 +587,13 @@ public:
 		previous_detector_time = std::chrono::steady_clock::now();
 	}
 
-	rtc::message_ptr incoming(rtc::message_ptr message) override {
+	void incoming(message_vector &messages, const message_callback &send) override {
 		// Can't parse header in that case
 		// std::cout << "f " << message->size() << std::endl;
-		if (message->size() < 4)
-			return message;
+		if (messages.empty())
+			return;
+		// We should check for all messages actually
+		auto message = messages[0];
 
 		uint8_t *byte_msg = (uint8_t *)message->data();
 		uint16_t *short_msg = (uint16_t *)message->data();
@@ -750,11 +752,8 @@ public:
 					std::cout << "TWCC packet size-delta mismatch" << std::endl;
 			}
 		}
-
-		return message;
 	}
 
-	rtc::message_ptr outgoing(rtc::message_ptr message) override { return message; }
 };
 
 /// Incomming message handler for websocket
