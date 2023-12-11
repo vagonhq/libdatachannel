@@ -33,6 +33,12 @@ struct ReceivedStats
 	}
 };
 
+struct BitrateStats {
+	double txBitsPerSecond, rxBitsPerSecond;
+	BitrateStats() : txBitsPerSecond(0), rxBitsPerSecond(0) {}
+	BitrateStats(double tx, double rx) : txBitsPerSecond(tx), rxBitsPerSecond(rx) {};
+};
+
 struct PacketInfo {
 	bool isReceived;
 	uint16_t numBytes;
@@ -66,8 +72,8 @@ public:
 	void addFrame(uint16_t seqNum);
 	void addPacketToFrame(uint16_t seqNum, uint16_t numBytes);
 	size_t updateReceivedStatus(uint16_t baseSeqNum, std::vector<bool> statuses, std::vector<double> arrival_times);
-	double getReceivedBitsPerSecond();
-	void deleteOldFrames(std::chrono::steady_clock::time_point time_now);
+	BitrateStats getBitrateStats();
+	void deleteOldFrames();
 	size_t size() const;
 	size_t sizeReceived() const;
 	long long findArrivalIntervalLastTwoFramesMS() const;

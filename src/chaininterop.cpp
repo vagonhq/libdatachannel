@@ -2,6 +2,7 @@
 
 #include "chaininterop.hpp"
 #include <algorithm>
+#include <cmath>
 
 namespace rtc {
 
@@ -64,6 +65,7 @@ ChainInterop::ChainInterop(int thresholdMs) { timeThreshold = std::chrono::milli
 void ChainInterop::addFrame(uint16_t seqNum) {
 	auto time_now = std::chrono::steady_clock::now();
 	outgoingFrameInfo.emplace(std::make_pair(seqNum, time_now));
+	deleteOldFrames();
 }
 
 void ChainInterop::addPacketToFrame(uint16_t seqNum, uint16_t numBytes) { outgoingFrameInfo.at(seqNum).addPacket(numBytes); }
@@ -100,30 +102,39 @@ size_t ChainInterop::updateReceivedStatus(uint16_t baseSeqNum, std::vector<bool>
 	return totalProcessedStatusCount;
 }
 
-double ChainInterop::getReceivedBitsPerSecond() {
+BitrateStats ChainInterop::getBitrateStats() {
 	if (outgoingFrameInfo.empty())
-		return 0;
+		return BitrateStats();
 
+	const std::chrono::seconds oneSecond = std::chrono::seconds(1);
 	std::chrono::steady_clock::time_point timeNow = std::chrono::steady_clock::now();
 	std::chrono::steady_clock::time_point firstPacketTime = timeNow;
-	deleteOldFrames(timeNow);
+
 	ReceivedStats allStats;
 	for (auto it = outgoingFrameInfo.begin(); it != outgoingFrameInfo.end(); it++) {
-		if (it->second.getTime() < firstPacketTime) {
-			firstPacketTime = it->second.getTime();
+		std::chrono::steady_clock::time_point frameTime = it->second.getTime();
+		if (frameTime - timeNow < oneSecond) {
+			if (frameTime < firstPacketTime) {
+				firstPacketTime = frameTime;
+			}
+			ReceivedStats temp = it->second.getFrameSizeInBytes();
+			allStats = allStats + temp;
 		}
-		ReceivedStats temp = it->second.getFrameSizeInBytes();
-		allStats = allStats + temp;
 	}
 
 	double elapsedSeconds =
 	    (double)std::chrono::duration_cast<std::chrono::milliseconds>(timeNow - firstPacketTime).count() / 1000.0;
 	double receivedBitrate = (double)allStats.receivedBytes * 8 / elapsedSeconds;
-
-	return receivedBitrate;
+	double sentBitrate = (double)(allStats.receivedBytes + allStats.notReceivedBytes) * 8 / elapsedSeconds;
+	if (!isfinite(receivedBitrate))
+		receivedBitrate = 0;
+	if (!isfinite(sentBitrate))
+		sentBitrate = 0;
+	return BitrateStats(sentBitrate, receivedBitrate);
 }
 
-void ChainInterop::deleteOldFrames(std::chrono::steady_clock::time_point time_now) {
+void ChainInterop::deleteOldFrames() {
+	std::chrono::steady_clock::time_point time_now = std::chrono::steady_clock::now();
 	auto it = outgoingFrameInfo.cbegin();
 	while (it != outgoingFrameInfo.cend()) {
 		if (time_now - it->second.getTime() > timeThreshold)
