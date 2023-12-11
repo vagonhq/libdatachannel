@@ -363,7 +363,8 @@ class CCResponder final : public rtc::MediaHandler {
 		previous_rc_time = time_now;
 		r_hat = receivedBps.load() * 8;
 
-		auto bpsServer = twccInterop->getReceivedBitsPerSecond();
+		auto bps = twccInterop->getBitrateStats();
+		auto bpsServer = bps.rxBitsPerSecond;
 		if (rate_control_state == RateControlState::DECREASE)
 			bw_stats.add(r_hat);
 		
