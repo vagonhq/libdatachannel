@@ -585,6 +585,7 @@ public:
 	    : m_ssrc(ssrc), m_change_bandwidth(callback), rtt_func(rtt_callback), r_hat(initial_bw_bps),
 	      a_hat(initial_bw_bps), twccInterop(interop) {
 		previous_detector_time = std::chrono::steady_clock::now();
+		std::cout << "ccresponder" << std::endl;
 	}
 
 	void incoming(message_vector &messages, const message_callback &send) override {
@@ -594,6 +595,8 @@ public:
 			return;
 		// We should check for all messages actually
 		auto message = messages[0];
+		if (messages.size() > 1)
+			std::cout << "messages size > 1" << std::endl;
 
 		uint8_t *byte_msg = (uint8_t *)message->data();
 		uint16_t *short_msg = (uint16_t *)message->data();
@@ -900,6 +903,8 @@ shared_ptr<ClientTrackData> addVideo(const shared_ptr<PeerConnection> pc, const 
     // add RTCP SR handler
     auto srReporter = make_shared<RtcpSrReporter>(rtpConfig);
     packetizer->addToChain(srReporter);
+	auto twccHandler = make_shared<TwccHandler>(3, twccInterop);
+	packetizer->addToChain(twccHandler);
     // add RTCP NACK handler
     auto nackResponder = make_shared<RtcpNackResponder>();
     packetizer->addToChain(nackResponder);
