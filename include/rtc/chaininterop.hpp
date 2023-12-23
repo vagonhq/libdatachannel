@@ -4,6 +4,7 @@
 #if RTC_ENABLE_MEDIA
 #include "common.hpp"
 #include <map>
+#include <deque>
 #include <vector>
 #include <chrono>
 #include <utility>
@@ -41,42 +42,45 @@ struct BitrateStats {
 
 struct PacketInfo {
 	bool isReceived;
+	bool isSent;
 	uint16_t numBytes;
-	double arrival_time;
-	PacketInfo(bool isReceived, uint16_t numBytes);
+	uint32_t frameIndex;
+	// It does not make sense to have 2 different variable types for storing time.
+	// But I arrivalTime is calculated from receiver reports and departureTime
+	// is captured from system wall clock.
+	double arrivalTime;
+	std::chrono::steady_clock::time_point departureTime;
+	PacketInfo(uint32_t frameIndex, uint16_t numBytes);
 };
 
 class FrameInfo {
 	std::chrono::steady_clock::time_point time;
-	std::vector<PacketInfo> packets;
+	uint16_t seqNumStart, seqNumEnd;
 
 public:
-	FrameInfo(std::chrono::steady_clock::time_point time);
-	void addPacket(uint16_t numBytes);
-	size_t updateReceivedStatus(std::vector<bool> statuses, std::vector<double> arrival_times, size_t packetStartIdx, size_t statusStartIdx);
-	size_t size() const;
-	ReceivedStats getFrameSizeInBytes() const;
+	FrameInfo(std::chrono::steady_clock::time_point time, uint16_t seqNumStart, uint16_t seqNumEnd);
 	std::chrono::steady_clock::time_point getTime() const;
-	bool isFullyReceived() const;
-	double findLastArrivalTime() const;
-	std::chrono::steady_clock::time_point getDepartureTime() const;
+	uint16_t getSeqNumStart() const;
+	uint16_t getSeqNumEnd() const;
 };
 
 class RTC_CPP_EXPORT ChainInterop {
-	std::map<uint16_t, FrameInfo> outgoingFrameInfo;
+	std::map<uint16_t, PacketInfo> packetInfo;
+	std::deque<FrameInfo> frameInfo;
 	// timeThreshold should be at least 1000ms.
 	std::chrono::milliseconds timeThreshold;
+	std::mutex mapMutex;
+	uint32_t frameCounter;
 
 public:
 	ChainInterop(int thresholdMs);
-	void addFrame(uint16_t seqNum);
-	void addPacketToFrame(uint16_t seqNum, uint16_t numBytes);
+	void addPackets(uint16_t baseSeqNum, std::vector<uint16_t> numBytes);
+	void setSentInfo(std::vector<uint16_t> seqNums);
 	size_t updateReceivedStatus(uint16_t baseSeqNum, std::vector<bool> statuses, std::vector<double> arrival_times);
 	BitrateStats getBitrateStats();
 	void deleteOldFrames();
-	size_t size() const;
-	size_t sizeReceived() const;
-	long long findArrivalIntervalLastTwoFramesMS() const;
+	size_t getNumberOfFrames() const;
+	size_t getNumberOfFramesReceived() const;
 };
 } // namespace rtc
 

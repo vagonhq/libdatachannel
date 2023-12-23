@@ -15,10 +15,10 @@ void TwccHandler::outgoing(message_vector &messages, const message_callback &sen
 	message_vector outgoing;
 	outgoing.reserve(messages.size());
 	uint16_t baseSeqNum = twccSeqNum;
-	if (twccInterop)
-		twccInterop->addFrame(baseSeqNum);
-
+	std::vector<uint16_t> packetSizes;
+	std::vector<uint16_t> seqNums;
 	for (unsigned int i = 0; i < messages.size(); i++) {
+		seqNums.push_back(twccSeqNum);
 		auto packet = messages[i];		
 		auto rtpHeader = reinterpret_cast<RtpHeader *>(packet->data());
 		outgoing.push_back(make_message(packet->size() + TWCC_EXT_HEADER_SIZE));
@@ -34,9 +34,14 @@ void TwccHandler::outgoing(message_vector &messages, const message_callback &sen
 		memcpy(dst, &twccHeader, TWCC_EXT_HEADER_SIZE);
 		dst += TWCC_EXT_HEADER_SIZE;
 		memcpy(dst, src, packet->size() - rtpHeader->getSize());
-		if (twccInterop)
-			twccInterop->addPacketToFrame(baseSeqNum, outgoing.back()->size());
+		packetSizes.push_back(outgoing.back()->size());
 	}
+	if (twccInterop) {
+		twccInterop->addPackets(baseSeqNum, packetSizes);
+		twccInterop->setSentInfo(seqNums);
+		twccInterop->deleteOldFrames();
+	}
+	
 	messages.swap(outgoing);
 }
 

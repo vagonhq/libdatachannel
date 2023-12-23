@@ -342,7 +342,7 @@ class CCResponder final : public rtc::MediaHandler {
 		}
 
 		if (abs(m_i) <= del_var_th + 15) {
-			float inter_arrival = twccInterop->findArrivalIntervalLastTwoFramesMS();
+			float inter_arrival = 100; // TODO: twccInterop->findArrivalIntervalLastTwoFramesMS();
 			float k = abs(m_i) < del_var_th ? detector_k_d : detector_k_u;
 
 			float temp = del_var_th + inter_arrival * k * (abs(m_i) - del_var_th);
@@ -402,8 +402,8 @@ class CCResponder final : public rtc::MediaHandler {
 			a_hat = beta * r_hat;
 		}
 
-		std::cout << "ahat " << a_hat << " rhat " << r_hat << " bpsserver " << bpsServer << " "
-		          << twccInterop->size()
+		std::cout << "ahat " << a_hat << " rhat " << r_hat << " bpsreceived " << bpsServer << " "
+		          << "bpssent " << bps.txBitsPerSecond << " " << twccInterop->getNumberOfFrames()
 		          << std::endl;
 	}
 
