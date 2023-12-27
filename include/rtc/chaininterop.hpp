@@ -65,6 +65,8 @@ public:
 };
 
 class RTC_CPP_EXPORT ChainInterop {
+	using clock = std::chrono::steady_clock;
+
 	std::map<uint16_t, PacketInfo> packetInfo;
 	std::deque<FrameInfo> frameInfo;
 	// timeThreshold should be at least 1000ms.
@@ -76,6 +78,7 @@ public:
 	ChainInterop(int thresholdMs);
 	void addPackets(uint16_t baseSeqNum, std::vector<uint16_t> numBytes);
 	void setSentInfo(std::vector<uint16_t> seqNums);
+	void ChainInterop::setSentInfo(std::vector<uint16_t> seqNums, std::vector<clock::time_point> sendTimes);
 	size_t updateReceivedStatus(uint16_t baseSeqNum, std::vector<bool> statuses, std::vector<double> arrival_times);
 	BitrateStats getBitrateStats();
 	void deleteOldFrames();

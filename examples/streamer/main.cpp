@@ -906,6 +906,8 @@ shared_ptr<ClientTrackData> addVideo(const shared_ptr<PeerConnection> pc, const 
     packetizer->addToChain(srReporter);
 	auto twccHandler = make_shared<TwccHandler>(3, twccInterop);
 	packetizer->addToChain(twccHandler);
+	auto pacer = make_shared<Metronome>(200000, twccInterop);
+	packetizer->addToChain(pacer);
     // add RTCP NACK handler
     auto nackResponder = make_shared<RtcpNackResponder>();
     packetizer->addToChain(nackResponder);

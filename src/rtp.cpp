@@ -678,6 +678,8 @@ void RtpTwccExt::setExtId(uint8_t id) { _id = (id << 4) | 0x01; }
 
 void RtpTwccExt::setTwccSeqNum(uint16_t seqNum) { _twccSeqNum = htons(seqNum); }
 
+uint16_t RtpTwccExt::getTwccSeqNum() const { return ntohs(_twccSeqNum); }
+
 void RtpTwccExt::preparePacket(uint8_t extId) {
 	const uint16_t profileId = (uint16_t)(0xBE << 8) | 0xDE;
 	header.setProfileSpecificId(profileId);

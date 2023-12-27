@@ -38,7 +38,6 @@ void TwccHandler::outgoing(message_vector &messages, const message_callback &sen
 	}
 	if (twccInterop) {
 		twccInterop->addPackets(baseSeqNum, packetSizes);
-		twccInterop->setSentInfo(seqNums);
 		twccInterop->deleteOldFrames();
 	}
 	
