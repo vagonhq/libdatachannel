@@ -177,7 +177,7 @@ bool Track::outgoing(message_ptr message) {
 
 	if (handler) {
 		message_vector messages{std::move(message)};
-		handler->outgoingChain(messages, send_callback /*[this](message_ptr m) { transportSend(m); }*/);
+		handler->outgoingChain(messages, send_callback);
 		bool ret = false;
 		for (auto &m : messages)
 			ret = transportSend(std::move(m));

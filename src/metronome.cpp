@@ -2,16 +2,19 @@
 
 #include "metronome.hpp"
 #include "impl/threadpool.hpp"
-#include <iostream>
+#include "rtp.hpp"
+
 namespace rtc {
 
 using ThreadPool = rtc::impl::ThreadPool;
 
-Metronome::Metronome(unsigned int initialPaceInBytes, std::shared_ptr<ChainInterop> interop)
-    : mPaceInBytes(initialPaceInBytes), mBudget(initialPaceInBytes), mThreadDelay(5) {
+Metronome::Metronome(unsigned int initialPaceInBytes,
+                     std::function<void(message_vector &)> processPacketsCallback,
+                     std::function<unsigned int(void)> getPaceInBytesCallback)
+    : mPaceInBytes(initialPaceInBytes), mBudget(initialPaceInBytes), mThreadDelay(5),
+      mProcessPacketsCallback(processPacketsCallback), mGetPaceInBytesCallback(getPaceInBytesCallback) {
 	prev = clock::now();
 	queue_size = 0;
-	twccInterop = interop;
 }
 
 void Metronome::outgoing(message_vector &messages, const message_callback &send) {
@@ -39,31 +42,38 @@ void Metronome::outgoing(message_vector &messages, const message_callback &send)
 
 void Metronome::senderProcess(const message_callback &send) {
 	auto now = clock::now();
+	if (mGetPaceInBytesCallback) {
+		auto newPace = mGetPaceInBytesCallback();
+		if (newPace != mPaceInBytes) {
+			prev = now;
+			mPaceInBytes = newPace;
+			mBudget = mPaceInBytes;
+		}
+	}
+
 	if (now - prev > std::chrono::seconds(1)) {
 		mBudget = mPaceInBytes;
 		prev = now;
 	}
 
 	if (!send_queue.empty()) {
-		std::unique_lock<std::mutex> lock(send_queue_mutex);
-
-		std::vector<uint16_t> seqNums;
-		std::vector<clock::time_point> sendTimes;
-		while (!send_queue.empty() && mBudget >= send_queue.front()->size()) {
-			size_t msg_size = send_queue.front()->size(); 
-			mBudget -= msg_size;
-			queue_size -= msg_size;
-			auto rtpHeader = reinterpret_cast<RtpHeader *>(send_queue.front()->data());
-			auto twccHeader = reinterpret_cast<RtpTwccExt *>(rtpHeader->getExtensionHeader());
-			seqNums.push_back(twccHeader->getTwccSeqNum());
-			sendTimes.push_back(clock::now());
-			send(send_queue.front());
-			send_queue.pop_front();
+		message_vector outgoing;
+		{
+			std::unique_lock<std::mutex> lock(send_queue_mutex);
+			while (!send_queue.empty() && mBudget >= send_queue.front()->size()) {
+				size_t msg_size = send_queue.front()->size(); 
+				mBudget -= msg_size;
+				queue_size -= msg_size;
+				outgoing.push_back(std::move(send_queue.front()));
+				send_queue.pop_front();
+			}
 		}
-		if (twccInterop) {
-			twccInterop->setSentInfo(seqNums, sendTimes);
+		for (const auto &message : outgoing) {
+			send(message);
 		}
-
+		if (mProcessPacketsCallback) {
+			mProcessPacketsCallback(outgoing);
+		}
 		if (!send_queue.empty()) {
 			ThreadPool::Instance().schedule(mThreadDelay, [this, &send]() { senderProcess(send); });
 		}

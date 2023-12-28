@@ -904,9 +904,31 @@ shared_ptr<ClientTrackData> addVideo(const shared_ptr<PeerConnection> pc, const 
     // add RTCP SR handler
     auto srReporter = make_shared<RtcpSrReporter>(rtpConfig);
     packetizer->addToChain(srReporter);
-	auto twccHandler = make_shared<TwccHandler>(3, twccInterop);
+	auto twccHandler = make_shared<TwccHandler>(3, [](message_vector &messages) {
+		std::vector<uint16_t> packetSizes;
+		uint16_t baseSeqNum;
+		auto rtpHeader = reinterpret_cast<RtpHeader *>(messages.front()->data());
+		auto twccHeader = reinterpret_cast<RtpTwccExt *>(rtpHeader->getExtensionHeader());
+		baseSeqNum = twccHeader->getTwccSeqNum();
+		for (const auto &message : messages) {
+			packetSizes.push_back(message->size());
+		}
+		twccInterop->addPackets(baseSeqNum, packetSizes);
+		twccInterop->deleteOldFrames();
+	});
 	packetizer->addToChain(twccHandler);
-	auto pacer = make_shared<Metronome>(200000, twccInterop);
+	auto pacer = make_shared<Metronome>(
+	    200000,
+	    [](message_vector &messages) {
+		    std::vector<uint16_t> seqNums;
+		    for (const auto &message : messages) {
+			    auto rtpHeader = reinterpret_cast<RtpHeader *>(message->data());
+			    auto twccHeader = reinterpret_cast<RtpTwccExt *>(rtpHeader->getExtensionHeader());
+			    seqNums.push_back(twccHeader->getTwccSeqNum());
+		    }
+		    twccInterop->setSentInfo(seqNums);
+	    },
+		[]() -> unsigned int { return 300000; });
 	packetizer->addToChain(pacer);
     // add RTCP NACK handler
     auto nackResponder = make_shared<RtcpNackResponder>();

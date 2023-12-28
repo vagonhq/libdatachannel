@@ -5,7 +5,6 @@
 
 #include <deque>
 #include <chrono>
-#include "h264rtppacketizer.hpp"
 #include "mediahandler.hpp"
 #include "chaininterop.hpp"
 
@@ -22,10 +21,12 @@ class RTC_CPP_EXPORT Metronome final : public MediaHandler {
 
 	clock::time_point prev;
 	std::chrono::milliseconds mThreadDelay;
-	std::shared_ptr<ChainInterop> twccInterop;
+	std::function<void(message_vector&)> mProcessPacketsCallback; 
+	std::function<unsigned int(void)> mGetPaceInBytesCallback;
 
 public:
-	Metronome(unsigned int initialPaceInBytes, std::shared_ptr<ChainInterop> interop);
+	Metronome(unsigned int initialPaceInBytes, std::function<void(message_vector &)> processPacketsCallback,
+	          std::function<unsigned int(void)> getPaceInBytesCallback);
 	
 	void outgoing(message_vector &messages, const message_callback &send) override;
 	void senderProcess(const message_callback &send);

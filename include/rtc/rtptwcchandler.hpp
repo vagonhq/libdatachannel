@@ -13,10 +13,11 @@ namespace rtc {
 class RTC_CPP_EXPORT TwccHandler final : public MediaHandler {
 	RtpTwccExt twccHeader;
 	uint16_t twccSeqNum;
-	std::shared_ptr<ChainInterop> twccInterop;
+
+	std::function<void(message_vector &)> processPacketsCallback;
 
 public:
-	TwccHandler(uint8_t extId, std::shared_ptr<ChainInterop> interop);
+	TwccHandler(uint8_t extId, std::function<void(message_vector &)> processPacketsCallback);
 	void outgoing(message_vector &messages, const message_callback &send) override;
 };
 
