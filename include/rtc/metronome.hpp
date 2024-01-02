@@ -20,16 +20,13 @@ public:
 };
 
 class RTC_CPP_EXPORT Metronome final : public MediaHandler {
-    using clock = std::chrono::steady_clock;
-
-    std::deque<message_ptr> send_queue;
+    std::deque<message_ptr> mSendQueue;
 	size_t mQueueSizeInBytes;
 	size_t mMaxQueueSizeInBytes;
-    std::mutex send_queue_mutex;
+    std::mutex mSendQueueMutex;
 
-	clock::time_point prev;
 	std::chrono::milliseconds mThreadDelay;
-	std::function<void(message_vector&)> mProcessPacketsCallback; 
+	std::function<void(message_vector&)> mProcessPacketsCallback; // For bookkeeping of sent packets
 	std::shared_ptr<PacerAlgorithm> mPacerAlgorithm;
 
 public:

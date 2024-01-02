@@ -942,9 +942,12 @@ shared_ptr<ClientTrackData> addVideo(const shared_ptr<PeerConnection> pc, const 
 		twccInterop->deleteOldFrames();
 	});
 	packetizer->addToChain(twccHandler);
+    // add RTCP NACK handler
+    auto nackResponder = make_shared<RtcpNackResponder>();
+    packetizer->addToChain(nackResponder);
+	// add Metronome
 	auto pacer = make_shared<Metronome>(
-	    3000000, make_shared<BucketPacer>(200000),
-	    [](message_vector &messages) {
+	    3000000, make_shared<BucketPacer>(200000), [](message_vector &messages) {
 		    std::vector<uint16_t> seqNums;
 		    for (const auto &message : messages) {
 			    auto rtpHeader = reinterpret_cast<RtpHeader *>(message->data());
@@ -954,10 +957,7 @@ shared_ptr<ClientTrackData> addVideo(const shared_ptr<PeerConnection> pc, const 
 		    twccInterop->setSentInfo(seqNums);
 	    });
 	packetizer->addToChain(pacer);
-    // add RTCP NACK handler
-    auto nackResponder = make_shared<RtcpNackResponder>();
-    packetizer->addToChain(nackResponder);
-    // set handler
+	// set handler
     track->setMediaHandler(packetizer);
     track->onOpen(onOpen);
     auto trackData = make_shared<ClientTrackData>(track, srReporter);
