@@ -242,6 +242,31 @@ public:
 	}
 };
 
+class BucketPacer final : public rtc::PacerAlgorithm {
+	using clock = std::chrono::steady_clock;
+	// Budget is remaining bitrate. Pace is the maximum bitrate.
+	unsigned int mBudget, mPaceInBytes;
+	clock::time_point mPrevTime;
+
+public:
+	BucketPacer(unsigned int paceInBytes) : mPaceInBytes(paceInBytes), mBudget(paceInBytes) {
+		mPrevTime = clock::now();
+	}
+
+	unsigned int getBudget() override {
+		auto now = clock::now();
+		if (now - mPrevTime > std::chrono::seconds(1)) {
+			mBudget = mPaceInBytes;
+			mPrevTime = now;
+		}
+		return mBudget;
+	}
+	unsigned int getPace() override { return mPaceInBytes; }
+	void setPace(unsigned int pace) override { mPaceInBytes = pace; };
+	void setBudget(unsigned int budget) override { mBudget = budget; };
+	void resetBudget() override { mBudget = mPaceInBytes; }
+};
+
 class CCResponder final : public rtc::MediaHandler {
 	uint32_t m_ssrc;
 
@@ -918,7 +943,7 @@ shared_ptr<ClientTrackData> addVideo(const shared_ptr<PeerConnection> pc, const 
 	});
 	packetizer->addToChain(twccHandler);
 	auto pacer = make_shared<Metronome>(
-	    200000,
+	    3000000, make_shared<BucketPacer>(200000),
 	    [](message_vector &messages) {
 		    std::vector<uint16_t> seqNums;
 		    for (const auto &message : messages) {
@@ -927,8 +952,7 @@ shared_ptr<ClientTrackData> addVideo(const shared_ptr<PeerConnection> pc, const 
 			    seqNums.push_back(twccHeader->getTwccSeqNum());
 		    }
 		    twccInterop->setSentInfo(seqNums);
-	    },
-		[]() -> unsigned int { return 300000; });
+	    });
 	packetizer->addToChain(pacer);
     // add RTCP NACK handler
     auto nackResponder = make_shared<RtcpNackResponder>();

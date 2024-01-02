@@ -8,13 +8,13 @@ namespace rtc {
 
 using ThreadPool = rtc::impl::ThreadPool;
 
-Metronome::Metronome(unsigned int initialPaceInBytes,
-                     std::function<void(message_vector &)> processPacketsCallback,
-                     std::function<unsigned int(void)> getPaceInBytesCallback)
-    : mPaceInBytes(initialPaceInBytes), mBudget(initialPaceInBytes), mThreadDelay(5),
-      mProcessPacketsCallback(processPacketsCallback), mGetPaceInBytesCallback(getPaceInBytesCallback) {
+Metronome::Metronome(size_t maxQueueSizeInBytes, std::shared_ptr<PacerAlgorithm> pacer,
+                     std::function<void(message_vector &)> processPacketsCallback)
+    : mMaxQueueSizeInBytes(maxQueueSizeInBytes), mPacerAlgorithm(pacer),
+      mProcessPacketsCallback(processPacketsCallback),
+      mThreadDelay(5) {
 	prev = clock::now();
-	queue_size = 0;
+	mQueueSizeInBytes = 0;
 }
 
 void Metronome::outgoing(message_vector &messages, const message_callback &send) {
@@ -25,15 +25,15 @@ void Metronome::outgoing(message_vector &messages, const message_callback &send)
 			others.push_back(std::move(message));
 			continue;
 		}
-		queue_size += message->size();
+		mQueueSizeInBytes += message->size();
 		send_queue.push_back(std::move(message));
 	}
-	while (queue_size > mPaceInBytes) {
+	while (mQueueSizeInBytes > mMaxQueueSizeInBytes) {
 		size_t msg_size = send_queue.front()->size();
 		// I am not dropping a packet that is just over the limit.
-		if (mPaceInBytes > queue_size - msg_size)
+		if (mMaxQueueSizeInBytes > mQueueSizeInBytes - msg_size)
 			break;
-		queue_size -= msg_size;
+		mQueueSizeInBytes -= msg_size;
 		send_queue.pop_front();
 	}
 	messages.swap(others);
@@ -42,32 +42,21 @@ void Metronome::outgoing(message_vector &messages, const message_callback &send)
 
 void Metronome::senderProcess(const message_callback &send) {
 	auto now = clock::now();
-	if (mGetPaceInBytesCallback) {
-		auto newPace = mGetPaceInBytesCallback();
-		if (newPace != mPaceInBytes) {
-			prev = now;
-			mPaceInBytes = newPace;
-			mBudget = mPaceInBytes;
-		}
-	}
-
-	if (now - prev > std::chrono::seconds(1)) {
-		mBudget = mPaceInBytes;
-		prev = now;
-	}
 
 	if (!send_queue.empty()) {
+		unsigned int budget = mPacerAlgorithm->getBudget();
 		message_vector outgoing;
 		{
 			std::unique_lock<std::mutex> lock(send_queue_mutex);
-			while (!send_queue.empty() && mBudget >= send_queue.front()->size()) {
+			while (!send_queue.empty() && budget >= send_queue.front()->size()) {
 				size_t msg_size = send_queue.front()->size(); 
-				mBudget -= msg_size;
-				queue_size -= msg_size;
+				budget -= msg_size;
+				mQueueSizeInBytes -= msg_size;
 				outgoing.push_back(std::move(send_queue.front()));
 				send_queue.pop_front();
 			}
 		}
+		mPacerAlgorithm->setBudget(budget);
 		for (const auto &message : outgoing) {
 			send(message);
 		}
