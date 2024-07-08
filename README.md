@@ -5,7 +5,8 @@
 [![Build with Mbed TLS](https://github.com/paullouisageneau/libdatachannel/actions/workflows/build-mbedtls.yml/badge.svg)](https://github.com/paullouisageneau/libdatachannel/actions/workflows/build-mbedtls.yml)
 [![Build with OpenSSL](https://github.com/paullouisageneau/libdatachannel/actions/workflows/build-openssl.yml/badge.svg)](https://github.com/paullouisageneau/libdatachannel/actions/workflows/build-openssl.yml)
 
-[![AUR package](https://repology.org/badge/version-for-repo/aur/libdatachannel.svg)](https://repology.org/project/libdatachannel/versions) [![FreeBSD port](https://repology.org/badge/version-for-repo/freebsd/libdatachannel.svg)](https://repology.org/project/libdatachannel/versions) [![Vcpkg package](https://repology.org/badge/version-for-repo/vcpkg/libdatachannel.svg)](https://repology.org/project/libdatachannel/versions)
+[![Packaging status](https://repology.org/badge/tiny-repos/libdatachannel.svg)](https://repology.org/project/libdatachannel/versions)
+[![Latest packaged version](https://repology.org/badge/latest-versions/libdatachannel.svg)](https://repology.org/project/libdatachannel/versions)
 [![Gitter](https://badges.gitter.im/libdatachannel/community.svg)](https://gitter.im/libdatachannel/community?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
 [![Discord](https://img.shields.io/discord/903257095539925006?logo=discord)](https://discord.gg/jXAP8jp3Nn)
 
@@ -27,7 +28,7 @@ libdatachannel is available on [AUR](https://aur.archlinux.org/packages/libdatac
 
 - [GnuTLS](https://www.gnutls.org/), [Mbed TLS](https://www.trustedfirmware.org/projects/mbed-tls/), or [OpenSSL](https://www.openssl.org/)
 - [usrsctp](https://github.com/sctplab/usrsctp) (as submodule by default)
-- [Plog](https://github.com/SergiusTheBest/plog) (as submodule by default)
+- [plog](https://github.com/SergiusTheBest/plog) (as submodule by default)
 - [libjuice](https://github.com/paullouisageneau/libjuice) (as submodule by default) or [libnice](https://nice.freedesktop.org/) as an ICE backend.
 - [libsrtp](https://github.com/cisco/libsrtp) (as submodule by default) required if compiled with media support.
 - [nlohmann JSON](https://github.com/nlohmann/json) (as submodule by default) required to build examples.

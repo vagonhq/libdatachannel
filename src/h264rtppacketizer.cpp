@@ -12,6 +12,7 @@
 
 #include "impl/internals.hpp"
 
+#include <algorithm>
 #include <cassert>
 
 #ifdef _WIN32
@@ -32,8 +33,9 @@ shared_ptr<NalUnits> H264RtpPacketizer::splitMessage(binary_ptr message) {
 				LOG_WARNING << "Invalid NAL Unit data (incomplete length), ignoring!";
 				break;
 			}
-			auto lengthPtr = (uint32_t *)(message->data() + index);
-			uint32_t length = ntohl(*lengthPtr);
+			uint32_t length;
+			std::memcpy(&length, message->data() + index, sizeof(uint32_t));
+			length = ntohl(length);
 			auto naluStartIndex = index + 4;
 			auto naluEndIndex = naluStartIndex + length;
 
@@ -81,20 +83,20 @@ shared_ptr<NalUnits> H264RtpPacketizer::splitMessage(binary_ptr message) {
 }
 
 H264RtpPacketizer::H264RtpPacketizer(shared_ptr<RtpPacketizationConfig> rtpConfig,
-                                     uint16_t maximumFragmentSize)
-    : RtpPacketizer(std::move(rtpConfig)), maximumFragmentSize(maximumFragmentSize),
+                                     uint16_t maxFragmentSize)
+    : RtpPacketizer(std::move(rtpConfig)), maxFragmentSize(maxFragmentSize),
       separator(Separator::Length) {}
 
 H264RtpPacketizer::H264RtpPacketizer(Separator separator,
                                      shared_ptr<RtpPacketizationConfig> rtpConfig,
-                                     uint16_t maximumFragmentSize)
-    : RtpPacketizer(rtpConfig), maximumFragmentSize(maximumFragmentSize), separator(separator) {}
+                                     uint16_t maxFragmentSize)
+    : RtpPacketizer(rtpConfig), maxFragmentSize(maxFragmentSize), separator(separator) {}
 
 void H264RtpPacketizer::outgoing(message_vector &messages, [[maybe_unused]] const message_callback &send) {
 	message_vector result;
 	for(const auto &message : messages) {
 		auto nalus = splitMessage(message);
-		auto fragments = nalus->generateFragments(maximumFragmentSize);
+		auto fragments = nalus->generateFragments(maxFragmentSize);
 		if (fragments.size() == 0)
 			continue;
 

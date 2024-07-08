@@ -9,14 +9,14 @@ namespace rtc {
 PacketInfo::PacketInfo(uint32_t frameIndex, uint16_t numBytes)
     : frameIndex(frameIndex), numBytes(numBytes), isReceived(false), isSent(false) {}
 
-FrameInfo::FrameInfo(std::chrono::steady_clock::time_point time, uint16_t seqNumStart, uint16_t seqNumEnd) 
+WholeFrameInfo::WholeFrameInfo(std::chrono::steady_clock::time_point time, uint16_t seqNumStart, uint16_t seqNumEnd) 
 	: time(time), seqNumStart(seqNumStart), seqNumEnd(seqNumEnd) {}
 
-std::chrono::steady_clock::time_point FrameInfo::getTime() const { return time; }
+std::chrono::steady_clock::time_point WholeFrameInfo::getTime() const { return time; }
 
-uint16_t FrameInfo::getSeqNumStart() const { return seqNumStart; }
+uint16_t WholeFrameInfo::getSeqNumStart() const { return seqNumStart; }
 
-uint16_t FrameInfo::getSeqNumEnd() const { return seqNumEnd; }
+uint16_t WholeFrameInfo::getSeqNumEnd() const { return seqNumEnd; }
 
 ChainInterop::ChainInterop(int thresholdMs) {
 	timeThreshold = std::chrono::milliseconds(thresholdMs);
@@ -24,7 +24,7 @@ ChainInterop::ChainInterop(int thresholdMs) {
 
 void ChainInterop::addPackets(uint16_t baseSeqNum, std::vector<uint16_t> numBytes) {
 	std::unique_lock<std::mutex> guard(mapMutex);
-	frameInfo.emplace_back(std::chrono::steady_clock::now(), baseSeqNum, baseSeqNum + numBytes.size());
+	wholeFrameInfo.emplace_back(std::chrono::steady_clock::now(), baseSeqNum, baseSeqNum + numBytes.size());
 	for (const auto& bytes : numBytes) {
 		packetInfo.emplace(std::make_pair(baseSeqNum, std::move(PacketInfo(frameCounter, bytes))));
 		baseSeqNum++;
@@ -105,23 +105,23 @@ void ChainInterop::deleteOldFrames() {
 	std::unique_lock<std::mutex> guard(mapMutex);
 	std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
 
-	while (!frameInfo.empty() && now - frameInfo.front().getTime() > timeThreshold) {
-		uint16_t seqNum = frameInfo.front().getSeqNumStart();
-		uint16_t seqNumEnd = frameInfo.front().getSeqNumEnd();
+	while (!wholeFrameInfo.empty() && now - wholeFrameInfo.front().getTime() > timeThreshold) {
+		uint16_t seqNum = wholeFrameInfo.front().getSeqNumStart();
+		uint16_t seqNumEnd = wholeFrameInfo.front().getSeqNumEnd();
 		// Due to wraparound seqNum might be greater than seqNumEnd
 		while (seqNum != seqNumEnd) {
 			packetInfo.erase(seqNum);
 			seqNum++;
 		}
-		frameInfo.pop_front();
+		wholeFrameInfo.pop_front();
 	}
 }
 
-size_t ChainInterop::getNumberOfFrames() const { return frameInfo.size(); }
+size_t ChainInterop::getNumberOfFrames() const { return wholeFrameInfo.size(); }
 
 size_t ChainInterop::getNumberOfFramesReceived() const {
 	size_t nReceived = 0;
-	for (const auto &frame : frameInfo) {
+	for (const auto &frame : wholeFrameInfo) {
 		uint16_t seqNum = frame.getSeqNumStart();
 		uint16_t seqNumEnd = frame.getSeqNumEnd();
 		while (seqNum < seqNumEnd) {

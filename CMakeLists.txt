@@ -1,14 +1,14 @@
 cmake_minimum_required(VERSION 3.7)
 project(libdatachannel
-	VERSION 0.19.4
+	VERSION 0.21.2
 	LANGUAGES CXX)
 set(PROJECT_DESCRIPTION "C/C++ WebRTC network library featuring Data Channels, Media Transport, and WebSockets")
 
 include(GNUInstallDirs)
 
 # Options
-option(USE_MBEDTLS "Use Mbed TLS instead of OpenSSL" OFF)
 option(USE_GNUTLS "Use GnuTLS instead of OpenSSL" OFF)
+option(USE_MBEDTLS "Use Mbed TLS instead of OpenSSL" OFF)
 option(USE_NICE "Use libnice instead of libjuice" OFF)
 option(PREFER_SYSTEM_LIB "Prefer system libraries over deps folder" OFF)
 option(USE_SYSTEM_SRTP "Use system libSRTP" ${PREFER_SYSTEM_LIB})
@@ -24,10 +24,9 @@ option(WARNINGS_AS_ERRORS "Treat warnings as errors" OFF)
 option(CAPI_STDCALL "Set calling convention of C API callbacks stdcall" OFF)
 option(SCTP_DEBUG "Enable SCTP debugging output to verbose log" OFF)
 
-if (USE_MBEDTLS AND USE_GNUTLS)
-	message(FATAL_ERROR "Both USE_MBEDTLS and USE_GNUTLS can not be enabled at the same time")
+if (USE_GNUTLS AND USE_MBEDTLS)
+	message(FATAL_ERROR "Both USE_MBEDTLS and USE_GNUTLS cannot be enabled at the same time")
 endif()
-
 
 if(USE_GNUTLS)
 	option(USE_NETTLE "Use Nettle in libjuice" ON)
@@ -76,7 +75,9 @@ set(LIBDATACHANNEL_SOURCES
 	${CMAKE_CURRENT_SOURCE_DIR}/src/rtppacketizationconfig.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/rtcpsrreporter.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/rtppacketizer.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/src/rtpdepacketizer.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/h264rtppacketizer.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/src/h264rtpdepacketizer.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/nalunit.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/h265rtppacketizer.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/h265nalunit.cpp
@@ -88,6 +89,7 @@ set(LIBDATACHANNEL_SOURCES
 	${CMAKE_CURRENT_SOURCE_DIR}/src/rtp.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/capi.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/plihandler.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/src/pacinghandler.cpp
 )
 
 set(LIBDATACHANNEL_HEADERS
@@ -101,6 +103,7 @@ set(LIBDATACHANNEL_HEADERS
 	${CMAKE_CURRENT_SOURCE_DIR}/include/rtc/common.hpp
 	${CMAKE_CURRENT_SOURCE_DIR}/include/rtc/global.hpp
 	${CMAKE_CURRENT_SOURCE_DIR}/include/rtc/message.hpp
+	${CMAKE_CURRENT_SOURCE_DIR}/include/rtc/frameinfo.hpp
 	${CMAKE_CURRENT_SOURCE_DIR}/include/rtc/peerconnection.hpp
 	${CMAKE_CURRENT_SOURCE_DIR}/include/rtc/reliability.hpp
 	${CMAKE_CURRENT_SOURCE_DIR}/include/rtc/rtc.h
@@ -112,7 +115,9 @@ set(LIBDATACHANNEL_HEADERS
 	${CMAKE_CURRENT_SOURCE_DIR}/include/rtc/rtppacketizationconfig.hpp
 	${CMAKE_CURRENT_SOURCE_DIR}/include/rtc/rtcpsrreporter.hpp
 	${CMAKE_CURRENT_SOURCE_DIR}/include/rtc/rtppacketizer.hpp
+	${CMAKE_CURRENT_SOURCE_DIR}/include/rtc/rtpdepacketizer.hpp
 	${CMAKE_CURRENT_SOURCE_DIR}/include/rtc/h264rtppacketizer.hpp
+	${CMAKE_CURRENT_SOURCE_DIR}/include/rtc/h264rtpdepacketizer.hpp
 	${CMAKE_CURRENT_SOURCE_DIR}/include/rtc/nalunit.hpp
 	${CMAKE_CURRENT_SOURCE_DIR}/include/rtc/h265rtppacketizer.hpp
 	${CMAKE_CURRENT_SOURCE_DIR}/include/rtc/h265nalunit.hpp
@@ -123,6 +128,8 @@ set(LIBDATACHANNEL_HEADERS
 	${CMAKE_CURRENT_SOURCE_DIR}/include/rtc/chaininterop.hpp
 	${CMAKE_CURRENT_SOURCE_DIR}/include/rtc/utils.hpp
 	${CMAKE_CURRENT_SOURCE_DIR}/include/rtc/plihandler.hpp
+	${CMAKE_CURRENT_SOURCE_DIR}/include/rtc/pacinghandler.hpp
+	${CMAKE_CURRENT_SOURCE_DIR}/include/rtc/version.h
 )
 
 set(LIBDATACHANNEL_IMPL_SOURCES
@@ -257,6 +264,11 @@ else()
 	add_library(Usrsctp::Usrsctp ALIAS usrsctp)
 endif()
 
+configure_file (
+    ${PROJECT_SOURCE_DIR}/cmake/version.h.in
+	${CMAKE_CURRENT_SOURCE_DIR}/include/rtc/version.h
+)
+
 add_library(datachannel SHARED
 	${LIBDATACHANNEL_SOURCES}
 	${LIBDATACHANNEL_HEADERS}
@@ -267,6 +279,13 @@ set_target_properties(datachannel PROPERTIES
 	SOVERSION ${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}
 	CXX_STANDARD 17
 	CXX_VISIBILITY_PRESET default)
+
+if(APPLE)
+	set_target_properties(datachannel PROPERTIES
+		VERSION ${PROJECT_VERSION_MAJOR}
+		SOVERSION ${PROJECT_VERSION_MAJOR})
+endif()
+
 target_compile_definitions(datachannel PRIVATE RTC_EXPORTS)
 
 add_library(datachannel-static STATIC EXCLUDE_FROM_ALL
@@ -329,7 +348,9 @@ else()
 		target_link_libraries(datachannel PRIVATE libSRTP::srtp2)
 		target_link_libraries(datachannel-static PRIVATE libSRTP::srtp2)
 	else()
-		add_subdirectory(deps/libsrtp EXCLUDE_FROM_ALL)
+		if(NOT TARGET srtp2)
+			add_subdirectory(deps/libsrtp EXCLUDE_FROM_ALL)
+		endif()
 		target_compile_definitions(datachannel PRIVATE RTC_SYSTEM_SRTP=0)
 		target_compile_definitions(datachannel-static PRIVATE RTC_SYSTEM_SRTP=0)
 		target_link_libraries(datachannel PRIVATE srtp2)
@@ -358,10 +379,11 @@ if (USE_GNUTLS)
 		target_link_libraries(datachannel-static PRIVATE Nettle::Nettle)
 	endif()
 elseif(USE_MBEDTLS)
-	find_package(MbedTLS 3 REQUIRED)
-
-	target_compile_definitions(datachannel PRIVATE USE_MBEDTLS)
-	target_compile_definitions(datachannel-static PRIVATE USE_MBEDTLS)
+	if(NOT TARGET MbedTLS::MbedTLS)
+		find_package(MbedTLS 3 REQUIRED)
+	endif()
+	target_compile_definitions(datachannel PRIVATE USE_MBEDTLS=1)
+	target_compile_definitions(datachannel-static PRIVATE USE_MBEDTLS=1)
 	target_link_libraries(datachannel PRIVATE MbedTLS::MbedTLS)
 	target_link_libraries(datachannel-static PRIVATE MbedTLS::MbedTLS)
 else()

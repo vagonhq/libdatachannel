@@ -53,12 +53,12 @@ struct PacketInfo {
 	PacketInfo(uint32_t frameIndex, uint16_t numBytes);
 };
 
-class FrameInfo {
+class WholeFrameInfo {
 	std::chrono::steady_clock::time_point time;
 	uint16_t seqNumStart, seqNumEnd;
 
 public:
-	FrameInfo(std::chrono::steady_clock::time_point time, uint16_t seqNumStart, uint16_t seqNumEnd);
+	WholeFrameInfo(std::chrono::steady_clock::time_point time, uint16_t seqNumStart, uint16_t seqNumEnd);
 	std::chrono::steady_clock::time_point getTime() const;
 	uint16_t getSeqNumStart() const;
 	uint16_t getSeqNumEnd() const;
@@ -66,7 +66,7 @@ public:
 
 class RTC_CPP_EXPORT ChainInterop {
 	std::map<uint16_t, PacketInfo> packetInfo;
-	std::deque<FrameInfo> frameInfo;
+	std::deque<WholeFrameInfo> wholeFrameInfo;
 	// timeThreshold should be at least 1000ms.
 	std::chrono::milliseconds timeThreshold;
 	std::mutex mapMutex;
