@@ -44,13 +44,12 @@ struct PacketInfo {
 	bool isReceived;
 	bool isSent;
 	uint16_t numBytes;
-	uint32_t frameIndex;
 	// It does not make sense to have 2 different variable types for storing time.
 	// But I arrivalTime is calculated from receiver reports and departureTime
 	// is captured from system wall clock.
 	double arrivalTime;
 	std::chrono::steady_clock::time_point departureTime;
-	PacketInfo(uint32_t frameIndex, uint16_t numBytes);
+	PacketInfo(uint16_t numBytes);
 };
 
 class WholeFrameInfo {
@@ -71,7 +70,6 @@ class RTC_CPP_EXPORT ChainInterop {
 	// timeThreshold should be at least 1000ms.
 	std::chrono::milliseconds timeThreshold;
 	std::mutex mapMutex;
-	uint32_t frameCounter;
 
 public:
 	ChainInterop(int thresholdMs);

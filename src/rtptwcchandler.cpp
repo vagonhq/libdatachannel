@@ -5,20 +5,18 @@
 #include <cassert>
 namespace rtc {
 
-TwccHandler::TwccHandler(uint8_t extId, std::shared_ptr<ChainInterop> interop) {
+TwccHandler::TwccHandler(uint8_t extId,
+                         std::function<void(message_vector &)> processPacketsCallback)
+    : processPacketsCallback(processPacketsCallback) {
 	assert(extId < 16);
 	twccHeader.preparePacket(extId);
 	twccSeqNum = 0;
-	twccInterop = interop;
 }
 void TwccHandler::outgoing(message_vector &messages, const message_callback &send) {
 	message_vector outgoing;
 	outgoing.reserve(messages.size());
-	uint16_t baseSeqNum = twccSeqNum;
-	std::vector<uint16_t> packetSizes;
-	std::vector<uint16_t> seqNums;
+
 	for (unsigned int i = 0; i < messages.size(); i++) {
-		seqNums.push_back(twccSeqNum);
 		auto packet = messages[i];		
 		auto rtpHeader = reinterpret_cast<RtpHeader *>(packet->data());
 		outgoing.push_back(make_message(packet->size() + TWCC_EXT_HEADER_SIZE));
@@ -34,13 +32,10 @@ void TwccHandler::outgoing(message_vector &messages, const message_callback &sen
 		memcpy(dst, &twccHeader, TWCC_EXT_HEADER_SIZE);
 		dst += TWCC_EXT_HEADER_SIZE;
 		memcpy(dst, src, packet->size() - rtpHeader->getSize());
-		packetSizes.push_back(outgoing.back()->size());
 	}
-	if (twccInterop) {
-		twccInterop->addPackets(baseSeqNum, packetSizes);
-		twccInterop->setSentInfo(seqNums);
-		twccInterop->deleteOldFrames();
-	}
+
+	if (processPacketsCallback)
+		processPacketsCallback(outgoing);
 	
 	messages.swap(outgoing);
 }

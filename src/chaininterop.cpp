@@ -3,11 +3,11 @@
 #include "chaininterop.hpp"
 #include <algorithm>
 #include <cmath>
-#include <iostream>
+
 namespace rtc {
 
-PacketInfo::PacketInfo(uint32_t frameIndex, uint16_t numBytes)
-    : frameIndex(frameIndex), numBytes(numBytes), isReceived(false), isSent(false) {}
+PacketInfo::PacketInfo(uint16_t numBytes)
+    : numBytes(numBytes), isReceived(false), isSent(false) {}
 
 WholeFrameInfo::WholeFrameInfo(std::chrono::steady_clock::time_point time, uint16_t seqNumStart, uint16_t seqNumEnd) 
 	: time(time), seqNumStart(seqNumStart), seqNumEnd(seqNumEnd) {}
@@ -26,10 +26,9 @@ void ChainInterop::addPackets(uint16_t baseSeqNum, std::vector<uint16_t> numByte
 	std::unique_lock<std::mutex> guard(mapMutex);
 	wholeFrameInfo.emplace_back(clock::now(), baseSeqNum, baseSeqNum + numBytes.size());
 	for (const auto& bytes : numBytes) {
-		packetInfo.emplace(std::make_pair(baseSeqNum, std::move(PacketInfo(frameCounter, bytes))));
+		packetInfo.emplace(std::make_pair(baseSeqNum, std::move(PacketInfo(bytes))));
 		baseSeqNum++;
 	}
-	frameCounter++;
 }
 
 void ChainInterop::setSentInfo(std::vector<uint16_t> seqNums) {
@@ -97,8 +96,6 @@ BitrateStats ChainInterop::getBitrateStats() {
 			}
 		}
 	}
-	std::cout << "received " << allStats.receivedPackets << " not recv "
-	          << allStats.notReceivedPackets << std::endl;
 	double elapsedSeconds =
 	    (double)std::chrono::duration_cast<std::chrono::milliseconds>(timeNow - firstPacketTime).count() / 1000.0;
 	double receivedBitrate = (double)allStats.receivedBytes * 8 / elapsedSeconds;
