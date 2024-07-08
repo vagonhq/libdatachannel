@@ -127,13 +127,18 @@ size_t ChainInterop::getNumberOfFrames() const { return wholeFrameInfo.size(); }
 
 size_t ChainInterop::getNumberOfFramesReceived() const {
 	size_t nReceived = 0;
+	bool frameReceived = true;
 	for (const auto &frame : wholeFrameInfo) {
 		uint16_t seqNum = frame.getSeqNumStart();
 		uint16_t seqNumEnd = frame.getSeqNumEnd();
 		while (seqNum < seqNumEnd) {
-			nReceived += packetInfo.at(seqNum).isReceived ? 1 : 0;
+			frameReceived &= packetInfo.at(seqNum).isReceived;
 			seqNum++;
 		}
+		if (frameReceived) {
+			nReceived++;
+		}
+		frameReceived = true;
 	}
 	
 	return nReceived;

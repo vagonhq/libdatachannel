@@ -404,7 +404,7 @@ class CCResponder final : public rtc::MediaHandler {
 
 		std::cout << "ahat " << a_hat << " rhat " << r_hat << " bpsreceived " << bpsServer << " "
 		          << "bpssent " << bps.txBitsPerSecond << " " << twccInterop->getNumberOfFrames()
-		          << std::endl;
+		          << " " << twccInterop->getNumberOfFramesReceived() << std::endl;
 	}
 
 	void process_fraction(uint32_t ssrc, uint8_t frac_byte, int highest_seqnum) {
