@@ -24,7 +24,7 @@ ChainInterop::ChainInterop(int thresholdMs) {
 
 void ChainInterop::addPackets(uint16_t baseSeqNum, std::vector<uint16_t> numBytes) {
 	std::unique_lock<std::mutex> guard(mapMutex);
-	wholeFrameInfo.emplace_back(std::chrono::steady_clock::now(), baseSeqNum, baseSeqNum + numBytes.size());
+	wholeFrameInfo.emplace_back(clock::now(), baseSeqNum, baseSeqNum + numBytes.size());
 	for (const auto& bytes : numBytes) {
 		packetInfo.emplace(std::make_pair(baseSeqNum, std::move(PacketInfo(frameCounter, bytes))));
 		baseSeqNum++;
@@ -34,10 +34,19 @@ void ChainInterop::addPackets(uint16_t baseSeqNum, std::vector<uint16_t> numByte
 
 void ChainInterop::setSentInfo(std::vector<uint16_t> seqNums) {
 	std::unique_lock<std::mutex> guard(mapMutex);
-	std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
+	clock::time_point now = std::chrono::steady_clock::now();
 	for (const auto &seqNum : seqNums) {
 		packetInfo.at(seqNum).isSent = true;
 		packetInfo.at(seqNum).departureTime = now;
+	}
+}
+
+void ChainInterop::setSentInfo(std::vector<uint16_t> seqNums,
+                               std::vector<clock::time_point> sendTimes) {
+	std::unique_lock<std::mutex> guard(mapMutex);
+	for (size_t i = 0; i < seqNums.size(); i++) {
+		packetInfo.at(seqNums.at(i)).isSent = true;
+		packetInfo.at(seqNums.at(i)).departureTime = sendTimes.at(i);
 	}
 }
 
@@ -67,8 +76,8 @@ BitrateStats ChainInterop::getBitrateStats() {
 		return BitrateStats();
 	std::unique_lock<std::mutex> guard(mapMutex);
 	const std::chrono::seconds oneSecond = std::chrono::seconds(1);
-	std::chrono::steady_clock::time_point timeNow = std::chrono::steady_clock::now();
-	std::chrono::steady_clock::time_point firstPacketTime = timeNow;
+	clock::time_point timeNow = std::chrono::steady_clock::now();
+	clock::time_point firstPacketTime = timeNow;
 
 	ReceivedStats allStats;
 	for (const auto &packet : packetInfo) {
@@ -103,7 +112,7 @@ BitrateStats ChainInterop::getBitrateStats() {
 
 void ChainInterop::deleteOldFrames() {
 	std::unique_lock<std::mutex> guard(mapMutex);
-	std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
+	clock::time_point now = std::chrono::steady_clock::now();
 
 	while (!wholeFrameInfo.empty() && now - wholeFrameInfo.front().getTime() > timeThreshold) {
 		uint16_t seqNum = wholeFrameInfo.front().getSeqNumStart();

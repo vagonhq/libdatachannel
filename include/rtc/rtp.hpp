@@ -377,6 +377,8 @@ struct RTC_CPP_EXPORT RtpTwccExt {
 	void setExtId(uint8_t id);
 	void setTwccSeqNum(uint16_t seqNum);
 	void preparePacket(uint8_t extId);
+
+	[[nodiscard]] uint16_t getTwccSeqNum() const;
 };
 
 #pragma pack(pop)

@@ -687,4 +687,6 @@ void RtpTwccExt::preparePacket(uint8_t extId) {
 	_zeroPad = 0;
 }
 
+uint16_t RtpTwccExt::getTwccSeqNum() const { return ntohs(_twccSeqNum); }
+
 }; // namespace rtc
