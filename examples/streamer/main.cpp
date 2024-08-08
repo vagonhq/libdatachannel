@@ -242,6 +242,41 @@ public:
 	}
 };
 
+class SlopeEstimator {
+	bool init = false;
+	ArrivalGroup last_group;
+
+	int64_t inter_group_delay_variation(ArrivalGroup a, ArrivalGroup b) {
+		auto inter_arrival = b.arrival_time - a.arrival_time;
+		auto inter_departure = std::chrono::duration_cast<std::chrono::microseconds>(
+		    b.departure_time - a.departure_time);
+		auto diff = inter_arrival - inter_departure;
+		return diff.count();
+	};
+public:
+	uint32_t rr_jitter = 0;
+	uint32_t s_jitter = 0;
+	RingBuffer<int64_t> server_jitters;
+	std::vector<int64_t> process_groups(std::vector<ArrivalGroup> &new_groups) {
+		std::vector<int64_t> jitters;
+
+		for (auto &group : new_groups) {
+			if (!init) {
+				init = true;
+				last_group = std::move(group);
+				continue;
+			}
+			int64_t jitter = inter_group_delay_variation(last_group, group);
+			server_jitters.insert(jitter);
+			uint32_t abs_jitter = jitter > 0 ? jitter : -jitter;
+			s_jitter += abs_jitter - ((s_jitter + 8) >> 4);
+			rr_jitter = s_jitter >> 4;
+			jitters.push_back(jitter);
+			last_group = std::move(group);
+		}
+		return jitters;
+	}
+};
 class CCResponder final : public rtc::MediaHandler {
 	uint32_t m_ssrc;
 
@@ -270,14 +305,11 @@ class CCResponder final : public rtc::MediaHandler {
 	float del_var_th = 12.5;
 	std::chrono::steady_clock::time_point previous_detector_time;
 	OverUseDetectorState prev_detector_state = OverUseDetectorState::NORMAL;
+	SlopeEstimator slope_estimator;
 
 	uint32_t inter_arrival_est = 0;
 	uint16_t last_twcc_packet_seqnum = 0;
-	RingBuffer<double> arrival_time_ms = RingBuffer<double>();
-	RingBuffer<uint32_t> arrival_timestamps = RingBuffer<uint32_t>();
 	RingBuffer<uint16_t> seqnums = RingBuffer<uint16_t>();
-	RingBuffer<double> deltas = RingBuffer<double>();
-	uint32_t reference_timestamp = 0;
 
 	// rate control
 	std::function<std::optional<std::chrono::milliseconds>()> rtt_func;
@@ -300,21 +332,18 @@ class CCResponder final : public rtc::MediaHandler {
 		P = e_i + q;
 		z_i = d_i - m_i; // measurement error
 		// update
-		k_i = (P) / (var_v + P);
-		if (z_i > 3 * sqrt(var_v))
-			m_i = m_i_1 + k_i * 3 * sqrt(var_v);
+		const double alpha = pow(1 - chi, 30 / (5000.0)); // This formula is from Interceptor API of Pion
+		double root3 = 3 * sqrt(var_v);
+		if (z_i > root3)
+			var_v = alpha * var_v + (1 - alpha) * root3 * root3;
 		else
-			m_i = m_i_1 + k_i * z_i;
-
+			var_v = alpha * var_v + (1 - alpha) * z_i * z_i;
+		var_v = var_v > 1 ? var_v : 1;
+		k_i = (P) / (var_v + P);
+		m_i = m_i_1 + k_i * z_i;
 		e_i = (1 - k_i) * P;
 
-		var_v = alpha * var_v + (1 - alpha) * z_i * z_i;
-		var_v = var_v < 1 ? 1 : var_v;
-		alpha = pow(1 - chi, fps / (5000.0)); // This formula is from Interceptor API of Pion
-
-		//std::cout << "mi " << m_i << " mi_1 " << m_i_1 << " var_v " << var_v << " e_i " << e_i
-		//          << " alpha " << alpha << " fmax " << f_max << " size " << arrival_time_ms.size()
-		//          << std::endl;
+		//std::cout << "mi " << m_i << " var_v " << var_v << " e_i " << e_i << " alpha " << alpha << std::endl;
 	}
 
 	OverUseDetectorState run_overuse_detector() {
@@ -361,10 +390,11 @@ class CCResponder final : public rtc::MediaHandler {
 		auto time_now = std::chrono::steady_clock::now();
 		auto time_since_last_update_ms = std::chrono::duration_cast<std::chrono::milliseconds>(time_now - previous_rc_time).count();
 		previous_rc_time = time_now;
-		r_hat = receivedBps.load() * 8;
+		//r_hat = receivedBps.load() * 8;
 
 		auto bps = twccInterop->getBitrateStats();
 		auto bpsServer = bps.rxBitsPerSecond;
+		r_hat = bpsServer;
 		if (rate_control_state == RateControlState::DECREASE)
 			bw_stats.add(r_hat);
 		
@@ -586,7 +616,6 @@ public:
 	    : m_ssrc(ssrc), m_change_bandwidth(callback), rtt_func(rtt_callback), r_hat(initial_bw_bps),
 	      a_hat(initial_bw_bps), twccInterop(interop) {
 		previous_detector_time = std::chrono::steady_clock::now();
-		std::cout << "ccresponder" << std::endl;
 	}
 
 	void incoming(message_vector &messages, const message_callback &send) override {
@@ -637,18 +666,11 @@ public:
 				if (m_ssrc == rtcp_report->getSSRC())
 					new_jitter = rtcp_report->jitter();
 			}
-			auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(time_now - previous_delay_bwe_time).count();
-			if (arrival_time_ms.size() > 10 && elapsed_ms > 500) {
-				previous_delay_bwe_time = time_now;
-				update_delay_filter(new_jitter);
-				
-				auto detector_state = run_overuse_detector();
-				state_transition(detector_state);
-				std::cout << "states " << detectorStateToString(detector_state) << " "
-				          << rateControlStateToString(rate_control_state) << " "
-				          << convergenceStateStateToString(convergence_state) << std::endl;
-				run_rate_control();
-			}
+			float jitter_float = (float)new_jitter * 1000.0 / 90000.0;
+
+			/*std::cout << "jitter report " << new_jitter << " " << jitter_float << 
+			    " " << slope_estimator.rr_jitter << " " << slope_estimator.s_jitter << std::endl;*/
+
 		} else if (packet_type == 205) {
 			auto rtcp = reinterpret_cast<RtcpTwcc *>(message->data());
 			auto newSeqNum = rtcp->getBaseSeqNum();
@@ -656,23 +678,16 @@ public:
 			auto num_packets = rtcp->getPacketStatusCount();
 			std::vector<TwccPacketInfo> packet_info;
 			std::vector<bool> isReceived;
-			std::vector<double> packet_arrivals;
-			uint32_t arrival_ts = rtcp->getReferenceTime() * 64;
-
+			uint32_t arrival_ts_ms = rtcp->getReferenceTime() * 64;
+			uint64_t arrival_ts_us = (uint64_t)arrival_ts_ms * 1000;
+			std::vector<std::chrono::microseconds> arrival_durations;
 			auto root = rtcp->getBody();
 			auto p_body = rtcp->getBody();
 			unsigned int byte_counter = 0;
 			unsigned int num_received_packets = 0;
 			unsigned int num_not_received_packets = 0;
 			unsigned int packets_counted = 0;
-			double delta_sum = 0;
 			
-			if (arrival_time_ms.size() == 0) {
-				reference_timestamp = arrival_ts;
-				arrival_ts = 0;
-			} else
-				arrival_ts -= reference_timestamp;
-
 			while (byte_counter < len_in_bytes && packets_counted < num_packets) {
 				auto packet_chunk = ntohs(* reinterpret_cast<uint16_t *>(p_body));
 				if (isStatusVector(packet_chunk)) {
@@ -717,47 +732,59 @@ public:
 				p_body += 2;
 				packets_counted = num_received_packets + num_not_received_packets;
 			}
-
+			int64_t delta_sum_us = 0;
 			for (unsigned int i = 0; i < packet_info.size(); i++) {
 				auto info = packet_info[i];
 				for (unsigned int j = 0; j < info.length; j++) {
 					int16_t temp;
 					switch (info.delta_info) { 
 					case TwccPacketStatus::RECEIVED_SMALL_DELTA:
-						delta_sum += (double)(*reinterpret_cast<uint8_t *>(p_body)) * 0.25;
+						delta_sum_us += (uint64_t)(*reinterpret_cast<uint8_t *>(p_body)) * 250;
 						p_body += 1;
 						byte_counter += 1;
-						packet_arrivals.push_back(arrival_ts + delta_sum);
+						arrival_durations.emplace_back(arrival_ts_us + delta_sum_us);
 						break;
 					case TwccPacketStatus::RECEIVED_LARGE_DELTA:
 						temp = (int16_t)ntohs(*reinterpret_cast<uint16_t *>(p_body));
-						delta_sum += (double) temp * 0.25;;
+						delta_sum_us += (int64_t)temp * 250;
 						p_body += 2;
 						byte_counter += 2;
-						packet_arrivals.push_back(arrival_ts + delta_sum);
+						arrival_durations.emplace_back(arrival_ts_us + delta_sum_us);
 						break;
 					default:
-						packet_arrivals.push_back(0);
+						arrival_durations.emplace_back(0);
 						break;
 					}
 				}
 			}
-
-			twccInterop->updateReceivedStatus(newSeqNum, isReceived, packet_arrivals);
-			arrival_timestamps.insert(arrival_ts);
 			seqnums.insert(newSeqNum);
-			arrival_time_ms.insert(arrival_ts + delta_sum);
-			deltas.insert(delta_sum);
-			//std::cout << "arrival_ts " << (int)arrival_ts << " deltas " << (int)delta_sum
-			//          << " arrival_time_ms " << (int) (arrival_ts + delta_sum) << " seqnum "
-			//          << newSeqNum << std::endl;
+			twccInterop->updateReceivedStatus(newSeqNum, isReceived, arrival_durations);
+			auto groups = twccInterop->runArrivalGroupAccumulator(newSeqNum, arrival_durations.size());
+			auto jitters = slope_estimator.process_groups(groups);
+			std::cout << "group count " << jitters.size() << std::endl;
+			for (auto &jitter : jitters) {
+				update_delay_filter((float)jitter / 1000.0);
+				auto detector_state = run_overuse_detector();
+				std::cout << "mi " << m_i << "del_var" << del_var_th << " "
+				          << detectorStateToString(detector_state) << std::endl;
+				state_transition(detector_state);
+				// std::cout << "states " << detectorStateToString(detector_state) << " "
+				//           << rateControlStateToString(rate_control_state) << " "
+				//           << convergenceStateStateToString(convergence_state) << std::endl;
+			}
+			auto time_now = std::chrono::steady_clock::now();
+			auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+			                      time_now - previous_delay_bwe_time).count();
+			if (elapsed_ms > 500) {
+				previous_delay_bwe_time = time_now;
+				run_rate_control();
+			}
 			if (byte_counter < len_in_bytes) {
 				if (len_in_bytes - byte_counter >= 4)
 					std::cout << "TWCC packet size-delta mismatch" << std::endl;
 			}
 		}
 	}
-
 };
 
 /// Incomming message handler for websocket

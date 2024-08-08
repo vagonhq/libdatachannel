@@ -22,7 +22,7 @@ ChainInterop::ChainInterop(int thresholdMs) {
 	timeThreshold = std::chrono::milliseconds(thresholdMs);
 }
 
-void ChainInterop::addPackets(uint16_t baseSeqNum, std::vector<uint16_t> numBytes) {
+void ChainInterop::addPackets(uint16_t baseSeqNum, const std::vector<uint16_t> &numBytes) {
 	std::unique_lock<std::mutex> guard(mapMutex);
 	wholeFrameInfo.emplace_back(clock::now(), baseSeqNum, baseSeqNum + numBytes.size());
 	for (const auto& bytes : numBytes) {
@@ -31,7 +31,7 @@ void ChainInterop::addPackets(uint16_t baseSeqNum, std::vector<uint16_t> numByte
 	}
 }
 
-void ChainInterop::setSentInfo(std::vector<uint16_t> seqNums) {
+void ChainInterop::setSentInfo(const std::vector<uint16_t> &seqNums) {
 	std::unique_lock<std::mutex> guard(mapMutex);
 	clock::time_point now = std::chrono::steady_clock::now();
 	for (const auto &seqNum : seqNums) {
@@ -40,8 +40,8 @@ void ChainInterop::setSentInfo(std::vector<uint16_t> seqNums) {
 	}
 }
 
-void ChainInterop::setSentInfo(std::vector<uint16_t> seqNums,
-                               std::vector<clock::time_point> sendTimes) {
+void ChainInterop::setSentInfo(const std::vector<uint16_t> &seqNums,
+                               const std::vector<clock::time_point> &sendTimes) {
 	std::unique_lock<std::mutex> guard(mapMutex);
 	for (size_t i = 0; i < seqNums.size(); i++) {
 		packetInfo.at(seqNums.at(i)).isSent = true;
@@ -49,7 +49,7 @@ void ChainInterop::setSentInfo(std::vector<uint16_t> seqNums,
 	}
 }
 
-size_t ChainInterop::updateReceivedStatus(uint16_t baseSeqNum, std::vector<bool> statuses, std::vector<double> arrival_times) {
+size_t ChainInterop::updateReceivedStatus(uint16_t baseSeqNum, const std::vector<bool> &statuses, const std::vector<std::chrono::microseconds> &arrival_times_us) {
 	size_t statusStartIdx = 0;
 	uint16_t seqNum = baseSeqNum;
 	size_t totalProcessedStatusCount = 0;
@@ -60,7 +60,7 @@ size_t ChainInterop::updateReceivedStatus(uint16_t baseSeqNum, std::vector<bool>
 			auto it = packetInfo.find(seqNum);
 			if (it != packetInfo.end()) {
 				it->second.isReceived = statuses.at(vectorIdx);
-				it->second.arrivalTime = arrival_times.at(vectorIdx);
+				it->second.arrivalDuration = arrival_times_us.at(vectorIdx);
 				totalProcessedStatusCount++;
 			}
 			vectorIdx++;
@@ -142,6 +142,62 @@ size_t ChainInterop::getNumberOfFramesReceived() const {
 	}
 	
 	return nReceived;
+}
+
+std::vector<ArrivalGroup> ChainInterop::runArrivalGroupAccumulator(uint16_t seqnum, uint16_t num_packets) {
+	const std::chrono::microseconds inter_departure_threshold(5000);
+	const std::chrono::microseconds inter_arrival_threshold(5000);
+	const std::chrono::microseconds inter_group_delay_variation_threshold(0);
+
+	bool init = false;
+	ArrivalGroup group;
+	std::vector<ArrivalGroup> groups;
+	std::unique_lock<std::mutex> guard(mapMutex);
+	for (size_t i = 0; i < num_packets; i++, seqnum++) {
+		if (!init) {
+			group.add(packetInfo.at(seqnum));
+			init = true;
+			continue;
+		}
+		if (packetInfo.at(seqnum).arrivalDuration < group.arrival_time) {
+			// ignores out of order arrivals
+			continue;
+		}
+		if (packetInfo.at(seqnum).departureTime > group.departure_time) {
+			if (interDepartureTimePkt(group, packetInfo.at(seqnum)) <= inter_departure_threshold) {
+				group.add(packetInfo.at(seqnum));
+				continue;
+			}
+			if (interArrivalTimePkt(group, packetInfo.at(seqnum)) <= inter_arrival_threshold &&
+			    interGroupDelayVariationPkt(group, packetInfo.at(seqnum)) <
+			        inter_group_delay_variation_threshold) {
+				group.add(packetInfo.at(seqnum));
+				continue;
+			}
+			groups.push_back(std::move(group));
+			group.reset();
+			group.add(packetInfo.at(seqnum));
+		}
+	}
+
+	return groups;
+}
+
+std::chrono::microseconds interDepartureTimePkt(ArrivalGroup group, PacketInfo packet) {
+	if (group.packets.empty())
+		return std::chrono::microseconds::zero();
+
+	return std::chrono::duration_cast<std::chrono::microseconds>(
+	    packet.departureTime - group.packets.back().departureTime);
+}
+std::chrono::microseconds interArrivalTimePkt(ArrivalGroup group, PacketInfo packet) {
+	return packet.arrivalDuration - group.packets.back().arrivalDuration;
+}
+std::chrono::microseconds interGroupDelayVariationPkt(ArrivalGroup group, PacketInfo packet) {
+	auto inter_departure = std::chrono::duration_cast<std::chrono::microseconds>(
+	    packet.departureTime - group.departure_time);
+	auto inter_arrival = packet.arrivalDuration - group.arrival_time;
+	return inter_arrival - inter_departure;
 }
 
 } // namespace rtc
