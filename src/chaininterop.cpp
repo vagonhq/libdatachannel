@@ -154,6 +154,9 @@ std::vector<ArrivalGroup> ChainInterop::runArrivalGroupAccumulator(uint16_t seqn
 	std::vector<ArrivalGroup> groups;
 	std::unique_lock<std::mutex> guard(mapMutex);
 	for (size_t i = 0; i < num_packets; i++, seqnum++) {
+		if (!(packetInfo.at(seqnum).isSent && packetInfo.at(seqnum).isReceived)) {
+			continue;
+		}
 		if (!init) {
 			group.add(packetInfo.at(seqnum));
 			init = true;
@@ -163,7 +166,7 @@ std::vector<ArrivalGroup> ChainInterop::runArrivalGroupAccumulator(uint16_t seqn
 			// ignores out of order arrivals
 			continue;
 		}
-		if (packetInfo.at(seqnum).departureTime > group.departure_time) {
+		if (packetInfo.at(seqnum).departureTime >= group.departure_time) {
 			if (interDepartureTimePkt(group, packetInfo.at(seqnum)) <= inter_departure_threshold) {
 				group.add(packetInfo.at(seqnum));
 				continue;
