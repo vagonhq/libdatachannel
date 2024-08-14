@@ -144,7 +144,7 @@ size_t ChainInterop::getNumberOfFramesReceived() const {
 	return nReceived;
 }
 
-std::vector<ArrivalGroup> ChainInterop::runArrivalGroupAccumulator(uint16_t seqnum, uint16_t num_packets) {
+std::vector<ArrivalGroup> ChainInterop::runArrivalGroupAccumulator(uint16_t base_seqnum, uint16_t num_packets) {
 	const std::chrono::microseconds inter_departure_threshold(5000);
 	const std::chrono::microseconds inter_arrival_threshold(5000);
 	const std::chrono::microseconds inter_group_delay_variation_threshold(0);
@@ -152,6 +152,8 @@ std::vector<ArrivalGroup> ChainInterop::runArrivalGroupAccumulator(uint16_t seqn
 	bool init = false;
 	ArrivalGroup group;
 	std::vector<ArrivalGroup> groups;
+	uint16_t seqnum = base_seqnum;
+	uint16_t last_added_seqnum = 0;
 	std::unique_lock<std::mutex> guard(mapMutex);
 	for (size_t i = 0; i < num_packets; i++, seqnum++) {
 		if (!(packetInfo.at(seqnum).isSent && packetInfo.at(seqnum).isReceived)) {
@@ -159,6 +161,7 @@ std::vector<ArrivalGroup> ChainInterop::runArrivalGroupAccumulator(uint16_t seqn
 		}
 		if (!init) {
 			group.add(packetInfo.at(seqnum));
+			last_added_seqnum = seqnum;
 			init = true;
 			continue;
 		}
@@ -169,20 +172,24 @@ std::vector<ArrivalGroup> ChainInterop::runArrivalGroupAccumulator(uint16_t seqn
 		if (packetInfo.at(seqnum).departureTime >= group.departure_time) {
 			if (interDepartureTimePkt(group, packetInfo.at(seqnum)) <= inter_departure_threshold) {
 				group.add(packetInfo.at(seqnum));
+				last_added_seqnum = seqnum;
 				continue;
 			}
 			if (interArrivalTimePkt(group, packetInfo.at(seqnum)) <= inter_arrival_threshold &&
-			    interGroupDelayVariationPkt(group, packetInfo.at(seqnum)) <
-			        inter_group_delay_variation_threshold) {
+			    interGroupDelayVariationPkt(group, packetInfo.at(seqnum)) < inter_group_delay_variation_threshold) {
 				group.add(packetInfo.at(seqnum));
+				last_added_seqnum = seqnum;
 				continue;
 			}
 			groups.push_back(std::move(group));
 			group.reset();
 			group.add(packetInfo.at(seqnum));
+			last_added_seqnum = seqnum;
 		}
 	}
-
+	if (last_added_seqnum == base_seqnum + (num_packets - 1)) {
+		groups.push_back(std::move(group));
+	}
 	return groups;
 }
 
