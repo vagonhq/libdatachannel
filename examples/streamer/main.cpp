@@ -242,6 +242,285 @@ public:
 	}
 };
 
+class KalmanFilter {
+	const double q = 0.001, chi = 0.001;
+	double encoder_fps = 30;
+public:
+	double m_i = 0, m_i_1 = 0, var_v = 1, e_i = 0.1;
+	double z_i = 0, k_i, P, root3;
+	KalmanFilter() {}
+	KalmanFilter(double encoder_fps) : encoder_fps(encoder_fps) {}
+	double update_estimate(double d_i) {
+		// Implements Kalman Filter of delay based BWE
+		// https://datatracker.ietf.org/doc/html/draft-ietf-rmcat-gcc-02#section-5.3
+
+		// prediction step m_i = m_i_1 and P = e_i + q
+		m_i_1 = m_i;
+		P = e_i + q;
+		z_i = d_i - m_i; // measurement error
+		// update
+		const double alpha =
+		    pow(1 - chi, encoder_fps / (5000.0)); // This formula is from Interceptor API of Pion
+		// double root3 = 3 * sqrt(var_v);
+		root3 = 3 * sqrt(var_v);
+		if (z_i > root3)
+			var_v = alpha * var_v + (1 - alpha) * root3 * root3;
+		else
+			var_v = alpha * var_v + (1 - alpha) * z_i * z_i;
+
+		var_v = var_v > 1 ? var_v : 1;
+		k_i = (P) / (var_v + P);
+		m_i = m_i_1 + k_i * z_i;
+		e_i = (1 - k_i) * P;
+
+		return m_i;
+	}
+};
+
+struct ThresholdResult {
+	OverUseDetectorState usage;
+	double estimate;
+	double threshold;
+	ThresholdResult(OverUseDetectorState usage, double estimate, double threshold)
+	    : usage(usage), estimate(estimate), threshold(threshold) {}
+};
+
+class AdaptiveThreshold {
+	using clock = std::chrono::steady_clock;
+	const double del_var_th_max = 600, del_var_th_min = 6;
+	const double detector_k_u = 0.01, detector_k_d = 0.00018;
+	clock::time_point last_update;
+	uint64_t num_deltas = 0;
+	const uint64_t max_deltas = 60;
+
+public:
+	double del_var_th = 12.5;
+	double t;
+	AdaptiveThreshold() { last_update = clock::now(); }
+
+	ThresholdResult compare(double m_i) {
+		num_deltas++;
+		if (num_deltas < 2) {
+			return ThresholdResult::ThresholdResult(OverUseDetectorState::NORMAL, m_i,
+			                                        del_var_th_max);
+		}
+		t = num_deltas < max_deltas ? num_deltas * m_i : max_deltas * m_i;
+		OverUseDetectorState usage = OverUseDetectorState::NORMAL;
+		if (t > del_var_th) {
+			usage = OverUseDetectorState::OVERUSE;
+		} else if (t < -del_var_th) {
+			usage = OverUseDetectorState::UNDERUSE;
+		}
+		update(t);
+		return ThresholdResult::ThresholdResult(usage, t, del_var_th);
+	}
+
+	void update(double m_i) {
+		// Updates adaptive threshold of delay based BWE
+		// Second paragraph of
+		// https://datatracker.ietf.org/doc/html/draft-ietf-rmcat-gcc-02#section-5.4
+		auto now = clock::now();
+		double abs_m_i = abs(m_i);
+		if (abs_m_i > del_var_th + 15) {
+			last_update = now;
+			return;
+		}
+
+		double k = abs_m_i < del_var_th ? detector_k_d : detector_k_u;
+		const double max_time_delta = 100;
+		std::chrono::duration<double, std::milli> time_diff = now - last_update;
+		double time_delta = time_diff.count();
+		time_delta = time_delta < max_time_delta ? time_delta : max_time_delta;
+		double temp_th = del_var_th + time_delta * k * (abs_m_i - del_var_th);
+		if (temp_th > del_var_th_max)
+			temp_th = del_var_th_max;
+		else if (temp_th < del_var_th_min)
+			temp_th = del_var_th_min;
+		del_var_th = temp_th;
+		last_update = now;
+	}
+};
+
+class OveruseDetector {
+	using clock = std::chrono::steady_clock;
+	const std::chrono::duration<double, std::milli> overuse_time_th_ms =
+	    std::chrono::duration<double, std::milli>(10);
+	clock::time_point last_update;
+	std::chrono::duration<double, std::milli> overuse_duration_ms =
+	    std::chrono::duration<double, std::milli>::zero();
+	unsigned int overuse_counter = 0;
+	double last_estimate = 0;
+
+public:
+	AdaptiveThreshold threshold = AdaptiveThreshold::AdaptiveThreshold();
+	OveruseDetector() { last_update = std::chrono::steady_clock::now(); }
+	OverUseDetectorState run(double m_i) {
+		// Implements over-use detector of delay based BWE
+		// First paragraph of
+		// https://datatracker.ietf.org/doc/html/draft-ietf-rmcat-gcc-02#section-5.4
+		auto now = clock::now();
+		std::chrono::duration<double, std::milli> delta = now - last_update;
+		last_update = now;
+		auto thresh_result = threshold.compare(m_i);
+
+		OverUseDetectorState result = OverUseDetectorState::NORMAL;
+		if (thresh_result.usage == OverUseDetectorState::OVERUSE) {
+			if (overuse_counter == 0)
+				overuse_duration_ms = delta / 2;
+			else
+				overuse_duration_ms += delta;
+			overuse_counter++;
+			if (overuse_duration_ms > overuse_time_th_ms && overuse_counter > 1 &&
+			    thresh_result.estimate > last_estimate) {
+				result = OverUseDetectorState::OVERUSE;
+			}
+		}
+
+		if (thresh_result.usage == OverUseDetectorState::UNDERUSE) {
+			overuse_counter = 0;
+			overuse_duration_ms = std::chrono::duration<double, std::milli>::zero();
+			result = OverUseDetectorState::UNDERUSE;
+		}
+
+		if (thresh_result.usage == OverUseDetectorState::NORMAL) {
+			overuse_counter = 0;
+			overuse_duration_ms = std::chrono::duration<double, std::milli>::zero();
+			result = OverUseDetectorState::NORMAL;
+		}
+
+		last_estimate = thresh_result.estimate;
+		return result;
+	}
+};
+
+class RateController {
+	using clock = std::chrono::steady_clock;
+	clock::time_point last_update;
+	const double beta = 0.85;
+	StatsCalculator rate_stats;
+	size_t encoder_fps = 30;
+	size_t min_bitrate;
+	size_t max_bitrate;
+	std::function<std::optional<std::chrono::milliseconds>()> rtt_func;
+
+public:
+	size_t current_bitrate;
+	size_t last_received_rate = 0;
+	RateControlState rate_control_state = RateControlState::INCREASE;
+	OveruseDetector overuse_detector;
+	KalmanFilter kalman;
+	RateController() { encoder_fps = 30; }
+	RateController(size_t current_bitrate, size_t min_bitrate, size_t max_bitrate,
+	               std::function<std::optional<std::chrono::milliseconds>()> rtt_func)
+	    : current_bitrate(current_bitrate), min_bitrate(min_bitrate), max_bitrate(max_bitrate),
+	      rtt_func(rtt_func), kalman(encoder_fps) {
+		last_update = clock::now();
+	}
+
+	size_t run(double d_i, size_t received_rate) {
+		last_received_rate = received_rate;
+		double estimate = kalman.update_estimate(d_i);
+		OverUseDetectorState usage_state = overuse_detector.run(estimate);
+		state_transition(usage_state);
+		size_t new_rate;
+		std::chrono::duration<double, std::milli> time_pass = clock::now() - last_update;
+		switch (rate_control_state) {
+		case RateControlState::HOLD:
+			break;
+		case RateControlState::INCREASE:
+			new_rate = increase();
+			current_bitrate = fmax(min_bitrate, fmin(max_bitrate, new_rate));
+			break;
+		case RateControlState::DECREASE:
+			new_rate = decrease();
+			current_bitrate = fmax(min_bitrate, fmin(max_bitrate, new_rate));
+			break;
+		default:
+			break;
+		}
+		std::cout << std::endl;
+		return current_bitrate;
+	}
+
+	size_t increase() {
+		auto now = clock::now();
+		std::chrono::duration<double, std::milli> delta = now - last_update;
+		auto [mean_r, std_r] = rate_stats.getMeanStd();
+		auto three_sigma = 3 * std_r;
+		if (mean_r > 0 && last_received_rate < mean_r + three_sigma &&
+		    last_received_rate > mean_r - three_sigma) {
+			double bits_per_frame = current_bitrate / encoder_fps;
+			double packets_per_frame = ceil(bits_per_frame / (1200 * 8));
+			double avg_packet_size_bits = bits_per_frame / packets_per_frame;
+
+			double rtt = 0;
+			if (auto rtt_opt = rtt_func()) {
+				rtt =
+				    std::chrono::duration_cast<std::chrono::milliseconds>(rtt_opt.value()).count();
+			}
+			 else
+			{
+			     std::cout << "rtt is empty" << std::endl;
+			 }
+			double response_time_ms = 100 + rtt;
+			double alpha = 0.5 * fmin((double)delta.count() / response_time_ms, 1.0);
+			double increase = fmax(1000, alpha * avg_packet_size_bits);
+			last_update = clock::now();
+			return fmin(current_bitrate + increase, 1.5 * last_received_rate);
+		}
+		double eta = pow(1.08, fmin(delta.count() / 1000.0, 1.0));
+		last_update = clock::now();
+		size_t rate = eta * current_bitrate;
+		size_t received = (size_t)1.5 * last_received_rate;
+		if (rate > received && received > current_bitrate) {
+			return received;
+		}
+		if (rate < current_bitrate) {
+			return current_bitrate;
+		}
+		return rate;
+	}
+
+	size_t decrease() {
+		size_t target = beta * last_received_rate;
+		rate_stats.add(last_received_rate);
+		last_update = clock::now();
+		return target;
+	}
+
+	void state_transition(OverUseDetectorState detector_state) {
+		// Updates state of rate-control of delay based BWE
+		// https://datatracker.ietf.org/doc/html/draft-ietf-rmcat-gcc-02#section-5.5
+		switch (detector_state) {
+		case OverUseDetectorState::UNDERUSE:
+			if (rate_control_state == RateControlState::INCREASE ||
+			    rate_control_state == RateControlState::DECREASE)
+				rate_control_state = RateControlState::HOLD;
+			break;
+		case OverUseDetectorState::NORMAL:
+			if (rate_control_state == RateControlState::HOLD)
+				rate_control_state = RateControlState::INCREASE;
+			else if (rate_control_state == RateControlState::DECREASE)
+				rate_control_state = RateControlState::HOLD;
+			break;
+		case OverUseDetectorState::OVERUSE:
+			if (rate_control_state == RateControlState::HOLD ||
+			    rate_control_state == RateControlState::INCREASE)
+				rate_control_state = RateControlState::DECREASE;
+			break;
+		default:
+			break;
+		}
+	}
+
+	void initiliaze(size_t fps, size_t starting_rate, size_t min_rate, size_t max_rate) {
+		min_bitrate = min_rate;
+		max_bitrate = max_rate;
+		current_bitrate = starting_rate;
+		encoder_fps = fps;
+	}
+};
+
 class SlopeEstimator {
 	bool init = false;
 	ArrivalGroup last_group;
@@ -295,26 +574,15 @@ class CCResponder final : public rtc::MediaHandler {
 	std::function<void(int)> m_change_bandwidth;
 	
 	// delay based rate control
-	// kalman filter
-	const float q = 0.001, chi = 0.01;
-	float m_i = 0, m_i_1 = 0, var_v = 1, e_i = 0.1, alpha = 0.5;
-	// over-use detector
-	const float del_var_th_max = 600, del_var_th_min = 6;
-	const unsigned int overuse_time_th_ms = 10;
-	const float detector_k_u = 0.01, detector_k_d = 0.00018;
-	float del_var_th = 12.5;
-	std::chrono::steady_clock::time_point previous_detector_time;
-	OverUseDetectorState prev_detector_state = OverUseDetectorState::NORMAL;
+	RateController delay_controller;
 	SlopeEstimator slope_estimator;
-
+	size_t delay_rate_estimate;
 	uint32_t inter_arrival_est = 0;
 	uint16_t last_twcc_packet_seqnum = 0;
 	RingBuffer<uint16_t> seqnums = RingBuffer<uint16_t>();
 
 	// rate control
 	std::function<std::optional<std::chrono::milliseconds>()> rtt_func;
-	RateControlState rate_control_state = RateControlState::INCREASE;
-	ConvergenceState convergence_state = ConvergenceState::DISTANT;
 
 	std::chrono::steady_clock::time_point previous_rc_time;
 	std::chrono::steady_clock::time_point previous_delay_bwe_time;
@@ -324,118 +592,6 @@ class CCResponder final : public rtc::MediaHandler {
 
 	StatsCalculator bw_stats = StatsCalculator();
 	std::shared_ptr<ChainInterop> twccInterop;
-
-	void update_delay_filter(float d_i) {
-		float z_i, k_i, P;
-		// prediction step m_i = m_i_1 and P = e_i + q
-		m_i_1 = m_i;
-		P = e_i + q;
-		z_i = d_i - m_i; // measurement error
-		// update
-		const double alpha = pow(1 - chi, 30 / (5000.0)); // This formula is from Interceptor API of Pion
-		double root3 = 3 * sqrt(var_v);
-		if (z_i > root3)
-			var_v = alpha * var_v + (1 - alpha) * root3 * root3;
-		else
-			var_v = alpha * var_v + (1 - alpha) * z_i * z_i;
-		var_v = var_v > 1 ? var_v : 1;
-		k_i = (P) / (var_v + P);
-		m_i = m_i_1 + k_i * z_i;
-		e_i = (1 - k_i) * P;
-
-		//std::cout << "mi " << m_i << " var_v " << var_v << " e_i " << e_i << " alpha " << alpha << std::endl;
-	}
-
-	OverUseDetectorState run_overuse_detector() {
-		OverUseDetectorState result;
-		if (m_i > del_var_th)
-			result = OverUseDetectorState::OVERUSE;
-		else if (m_i < -del_var_th)
-			result = OverUseDetectorState::UNDERUSE;
-		else
-			result = OverUseDetectorState::NORMAL;
-		/*std::cout << "overuse prev " << detectorStateToString(prev_detector_state) << " new "
-		          << detectorStateToString(result) << std::endl;*/
-		auto time_now = std::chrono::steady_clock::now();
-		if (result != prev_detector_state) {
-			previous_detector_time = time_now;
-		} else {
-			if (result == OverUseDetectorState::OVERUSE) {
-				auto milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(
-				                        time_now - previous_detector_time)
-				                        .count();
-				if (m_i < m_i_1 || milliseconds < overuse_time_th_ms)
-					result = OverUseDetectorState::NORMAL;
-			}
-			prev_detector_state = result;
-		}
-
-		if (abs(m_i) <= del_var_th + 15) {
-			float inter_arrival = 100; // TODO: twccInterop->findArrivalIntervalLastTwoFramesMS();
-			float k = abs(m_i) < del_var_th ? detector_k_d : detector_k_u;
-
-			float temp = del_var_th + inter_arrival * k * (abs(m_i) - del_var_th);
-			if (temp > del_var_th_max)
-				temp = del_var_th_max;
-			else if (temp < del_var_th_min)
-				temp = del_var_th_min;
-			del_var_th = temp;
-			//std::cout << "del_var_th update " << temp << " interarrival " << inter_arrival << std::endl;
-		}
-
-		return result;
-	}
-
-	void run_rate_control() {
-		auto time_now = std::chrono::steady_clock::now();
-		auto time_since_last_update_ms = std::chrono::duration_cast<std::chrono::milliseconds>(time_now - previous_rc_time).count();
-		previous_rc_time = time_now;
-		//r_hat = receivedBps.load() * 8;
-
-		auto bps = twccInterop->getBitrateStats();
-		auto bpsServer = bps.rxBitsPerSecond;
-		r_hat = bpsServer;
-		if (rate_control_state == RateControlState::DECREASE)
-			bw_stats.add(r_hat);
-		
-		if (rate_control_state == RateControlState::INCREASE) {
-			if (bw_stats.isValid()) {
-				auto [mean_r, std_r] = bw_stats.getMeanStd();
-				auto three_sigma = 3 * std_r;
-				if (r_hat < mean_r + three_sigma || r_hat > mean_r - three_sigma)
-					convergence_state = ConvergenceState::CLOSE;
-				else {
-					convergence_state = ConvergenceState::DISTANT;
-					bw_stats.reset();
-				}
-			} else
-				convergence_state = ConvergenceState::DISTANT;
-
-			if (convergence_state == ConvergenceState::DISTANT) {
-				float eta = pow(1.08, fmin(time_since_last_update_ms / 1000.0, 1.0));
-				a_hat = eta * a_hat;
-			} else {
-				float rtt = 0;
-				if (auto rtt_opt = rtt_func()) {
-					rtt = std::chrono::duration_cast<std::chrono::milliseconds>(rtt_opt.value()).count();
-				}
-				float response_time_ms = 100 + rtt;
-				alpha = 0.5 * fmin((float)time_since_last_update_ms / response_time_ms, 1.0);
-				float bits_per_frame = a_hat / fps;
-				float packets_per_frame = ceil(bits_per_frame / (1200 * 8));
-				float avg_packet_size_bits = bits_per_frame / packets_per_frame;
-				a_hat = a_hat + fmax(1000, alpha * avg_packet_size_bits);
-			}
-			if (a_hat > r_hat * 1.5)
-				a_hat = r_hat * 1.5;
-		} else if (rate_control_state == RateControlState::DECREASE) {
-			a_hat = beta * r_hat;
-		}
-
-		std::cout << "ahat " << a_hat << " rhat " << r_hat << " bpsreceived " << bpsServer << " "
-		          << "bpssent " << bps.txBitsPerSecond << " " << twccInterop->getNumberOfFrames()
-		          << " " << twccInterop->getNumberOfFramesReceived() << std::endl;
-	}
 
 	void process_fraction(uint32_t ssrc, uint8_t frac_byte, int highest_seqnum) {
 
@@ -491,8 +647,6 @@ class CCResponder final : public rtc::MediaHandler {
 		// since it relies on packet loss only
 
 		bool estimate_changed = false;
-
-		// Logf("update_estimate: old estimate % f fraction % f", m_estimate, loss_fraction);
 
 		if (loss_fraction < 0.015f) {
 			m_estimate *= 1.05;
@@ -586,41 +740,17 @@ class CCResponder final : public rtc::MediaHandler {
 		return result;
 	}
 
-	void state_transition(OverUseDetectorState detector_state) {
-		switch (detector_state) {
-		case OverUseDetectorState::UNDERUSE:
-			if (rate_control_state == RateControlState::INCREASE ||
-			    rate_control_state == RateControlState::DECREASE)
-				rate_control_state = RateControlState::HOLD;
-			break;
-		case OverUseDetectorState::NORMAL:
-			if (rate_control_state == RateControlState::HOLD)
-				rate_control_state = RateControlState::INCREASE;
-			else if (rate_control_state == RateControlState::DECREASE)
-				rate_control_state = RateControlState::HOLD;
-			break;
-		case OverUseDetectorState::OVERUSE:
-			if (rate_control_state == RateControlState::HOLD ||
-			    rate_control_state == RateControlState::INCREASE)
-				rate_control_state = RateControlState::DECREASE;
-			break;
-		default:
-			break;
-		}
-	}
-
 public:
 	CCResponder(uint32_t ssrc, std::function<void(int)> callback,
 	            std::function<std::optional<std::chrono::milliseconds>()> rtt_callback,
 	            int initial_bw_bps, std::shared_ptr<ChainInterop> interop)
 	    : m_ssrc(ssrc), m_change_bandwidth(callback), rtt_func(rtt_callback), r_hat(initial_bw_bps),
-	      a_hat(initial_bw_bps), twccInterop(interop) {
-		previous_detector_time = std::chrono::steady_clock::now();
+	      a_hat(initial_bw_bps), twccInterop(interop), delay_controller(0, 0, 0, rtt_callback) {
+		delay_controller.initiliaze(30, 2000000, 1000000, 4000000);
 	}
 
 	void incoming(message_vector &messages, const message_callback &send) override {
 		// Can't parse header in that case
-		// std::cout << "f " << message->size() << std::endl;
 		if (messages.empty())
 			return;
 		// We should check for all messages actually
@@ -633,15 +763,13 @@ public:
 
 		uint8_t packet_type = byte_msg[1];
 
-		// Logf("message size %d packet type %d", message->size(), packet_type);
-		//std::cout << "cc packet type" << (int)packet_type << std::endl;
 		// checking for receiver reports
 		if (packet_type == 201) {
 			auto time_now = std::chrono::steady_clock::now();
 			// 8 byte header + 24 byte report blocks
 			uint16_t length = message->size();
 			size_t num_blocks = (length - 8) / 24;
-			// Logf("length %d num_blocks %d", length, num_blocks);
+
 
 			uint8_t *blocks_start = byte_msg + 8;
 			for (size_t i = 0; i < num_blocks; i++) {
@@ -654,8 +782,6 @@ public:
 
 				process_fraction(ssrc, byte_frac, seqnum);
 
-				// Logf("receiver report ssrc %d seqnum %d packets lost pct %.2f", ssrc, seqnum,
-				// frac);
 			}
 
 			// jitter
@@ -760,24 +886,24 @@ public:
 			seqnums.insert(newSeqNum);
 			twccInterop->updateReceivedStatus(newSeqNum, isReceived, arrival_durations);
 			auto groups = twccInterop->runArrivalGroupAccumulator(newSeqNum, arrival_durations.size());
-			auto jitters = slope_estimator.process_groups(groups);
-			std::cout << "group count " << jitters.size() << std::endl;
-			for (auto &jitter : jitters) {
-				update_delay_filter((float)jitter / 1000.0);
-				auto detector_state = run_overuse_detector();
-				std::cout << "mi " << m_i << "del_var" << del_var_th << " "
-				          << detectorStateToString(detector_state) << std::endl;
-				state_transition(detector_state);
-				// std::cout << "states " << detectorStateToString(detector_state) << " "
-				//           << rateControlStateToString(rate_control_state) << " "
-				//           << convergenceStateStateToString(convergence_state) << std::endl;
+			auto delay_variations = slope_estimator.process_groups(groups);
+			auto bps = twccInterop->getBitrateStats();
+			std::cout << "group count " << delay_variations.size() << std::endl;
+			for (auto &delay : delay_variations) {
+				float delay_ms = (float)delay / 1000.0;
+				delay_rate_estimate = delay_controller.run(delay_ms, bps.rxBitsPerSecond);
+				std::cout << "zi " << delay_ms << " mi " << delay_controller.kalman.m_i
+				          << " delvar " << delay_controller.overuse_detector.threshold.del_var_th
+				          << " t " << delay_controller.overuse_detector.threshold.t
+				          << " state "
+				          << rateControlStateToString(delay_controller.rate_control_state) << std::endl;
 			}
 			auto time_now = std::chrono::steady_clock::now();
-			auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-			                      time_now - previous_delay_bwe_time).count();
+			auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(time_now - previous_delay_bwe_time).count();
+
 			if (elapsed_ms > 500) {
 				previous_delay_bwe_time = time_now;
-				run_rate_control();
+				// run_rate_control();
 			}
 			if (byte_counter < len_in_bytes) {
 				if (len_in_bytes - byte_counter >= 4)
@@ -990,8 +1116,8 @@ shared_ptr<Client> createPeerConnection(const Configuration &config,
     auto client = make_shared<Client>(pc);
 	pc->setMediaHandler(std::make_shared<CCResponder>(
 	    1, [&](int bandwidth) { std::cout << "bw chnge " << bandwidth << std::endl; },
-	    [wpc = make_weak_ptr(pc)]() -> std::optional<std::chrono::milliseconds>{
-		    if (auto pc = wpc.lock())
+	    [wpc = make_weak_ptr(pc)]() -> std::optional<std::chrono::milliseconds> {
+			if (auto pc = wpc.lock())
 			    return pc->rtt();
 		    else
 			    std::cout << "pc pointer is empty!" << std::endl;
