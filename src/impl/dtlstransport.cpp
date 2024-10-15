@@ -989,8 +989,8 @@ void DtlsTransport::doRecv() {
 
 	if (state() == State::Connected) {
 		PLOG_INFO << "DTLS closed";
-		changeState(State::Disconnected);
-		recv(nullptr);
+		// changeState(State::Disconnected);
+		// recv(nullptr);
 	} else {
 		PLOG_ERROR << "DTLS handshake failed";
 		changeState(State::Failed);
